@@ -8,8 +8,13 @@
 #include "tier0/memdbgon.h"
 
 // Collision bounds cover the whole legal Source coordinate range.
-static const Vector s_vecWorldMins( -MAX_COORD_FLOAT + 1, -MAX_COORD_FLOAT + 1, -MAX_COORD_FLOAT + 1 );
-static const Vector s_vecWorldMaxs( MAX_COORD_FLOAT - 1, MAX_COORD_FLOAT - 1, MAX_COORD_FLOAT - 1 );
+// Keep well inside the engine's world limits: boxes touching +-MAX_COORD_FLOAT fall off the edge of
+// the spatial partition (no traces reach TestCollision) and the client leaf system (never drawn).
+#define MC_WORLD_EXTENT 15872.f
+static const Vector s_vecWorldMins( -MC_WORLD_EXTENT, -MC_WORLD_EXTENT, -MC_WORLD_EXTENT );
+static const Vector s_vecWorldMaxs( MC_WORLD_EXTENT, MC_WORLD_EXTENT, MC_WORLD_EXTENT );
+const Vector &MC_WorldMins() { return s_vecWorldMins; }
+const Vector &MC_WorldMaxs() { return s_vecWorldMaxs; }
 
 static CHandle<CMCWorld> s_hWorld;
 
@@ -74,6 +79,8 @@ void CMCWorld::Spawn()
 	BaseClass::Spawn();
 	s_hWorld = this;
 	SetMoveType( MOVETYPE_NONE );
+	SetAbsOrigin( vec3_origin );
+	SetAbsAngles( vec3_angle );
 	SetSolid( SOLID_CUSTOM );
 	AddSolidFlags( FSOLID_CUSTOMRAYTEST | FSOLID_CUSTOMBOXTEST );
 	SetCollisionGroup( COLLISION_GROUP_NONE );

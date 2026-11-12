@@ -1,5 +1,6 @@
 "UnlitGeneric"
 {
+	"$nocull"	"1"
 	"$basetexture"	"mc/atlas"
 	"$vertexcolor"	"1"
 	"$vertexalpha"	"1"

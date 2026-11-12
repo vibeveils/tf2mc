@@ -69,6 +69,7 @@ public:
 	void Update();
 	void Draw( MeshPass pass );
 	void DrawOverlays();
+	IMaterial *DebugMaterial() { return Mat( PASS_OPAQUE ); }
 	int SectionCount() const { return (int)m_gpu.size(); }
 
 private:
@@ -89,6 +90,7 @@ private:
 };
 
 static CMCWorldMeshes g_Meshes;
+
 
 IMaterial *CMCWorldMeshes::Mat( MeshPass pass )
 {
@@ -133,7 +135,10 @@ void CMCWorldMeshes::Upload( std::vector<IMesh *> &out, const std::vector<mc::Me
 	for ( size_t q0 = 0; q0 < quads; q0 += kMaxQuadsPerMesh )
 	{
 		int n = (int)MIN( (size_t)kMaxQuadsPerMesh, quads - q0 );
-		VertexFormat_t fmt = VERTEX_POSITION | VERTEX_COLOR | VERTEX_TEXCOORD_SIZE( 0, 2 );
+		// Static meshes must carry every field the material's shader wants (DX9 shaders on most
+		// cards want a normal too) and must not be compressed, or the engine refuses to draw them.
+		VertexFormat_t fmt = ( mat->GetVertexFormat() & ~VERTEX_FORMAT_COMPRESSED ) |
+							 VERTEX_POSITION | VERTEX_COLOR | VERTEX_NORMAL | VERTEX_TEXCOORD_SIZE( 0, 2 );
 		IMesh *mesh = ctx->CreateStaticMesh( fmt, TEXTURE_GROUP_STATIC_VERTEX_BUFFER_WORLD, mat );
 		CMeshBuilder mb;
 		mb.Begin( mesh, MATERIAL_TRIANGLES, n * 4, n * 6 );
@@ -143,6 +148,7 @@ void CMCWorldMeshes::Upload( std::vector<IMesh *> &out, const std::vector<mc::Me
 			for ( int k = 0; k < 4; ++k )
 			{
 				mb.Position3fv( v[k].pos );
+				mb.Normal3f( 0.f, 0.f, 1.f );
 				float l = mc::LightCurve( lightChannel == 0 ? v[k].sky : v[k].blk );
 				if ( lightChannel == 1 ) l = MAX( 0.f, l - mc::LightCurve( 0 ) );   // glow: block light only
 				mb.Color4ub( (unsigned char)( v[k].rgba[0] * l ), (unsigned char)( v[k].rgba[1] * l ), (unsigned char)( v[k].rgba[2] * l ), v[k].rgba[3] );
@@ -252,8 +258,16 @@ void CMCWorldMeshes::Update()
 	m_pending.erase( m_pending.begin(), m_pending.begin() + done );
 }
 
+static int s_nDrawCalls[3], s_nDrawnSections[3], s_nCulledSections[3], s_nDrawFrame = -1;
+
 void CMCWorldMeshes::Draw( MeshPass pass )
 {
+	if ( s_nDrawFrame != gpGlobals->framecount )
+	{
+		s_nDrawFrame = gpGlobals->framecount;
+		for ( int i = 0; i < 3; ++i ) s_nDrawCalls[i] = s_nDrawnSections[i] = s_nCulledSections[i] = 0;
+	}
+	s_nDrawCalls[pass]++;
 	if ( !mc_draw.GetBool() || m_gpu.empty() ) return;
 	if ( pass == PASS_GLOW && !mc_glow.GetBool() ) return;
 	IMaterial *mat = Mat( pass );
@@ -284,7 +298,8 @@ void CMCWorldMeshes::Draw( MeshPass pass )
 		if ( list.empty() ) continue;
 		mc::Vec3d d = now.ShiftFrom( g.built );
 		Vector off( (float)d.x, (float)d.y, (float)d.z );
-		if ( engine->CullBox( g.mins + off, g.maxs + off ) ) continue;
+		if ( engine->CullBox( g.mins + off, g.maxs + off ) ) { s_nCulledSections[pass]++; continue; }
+		s_nDrawnSections[pass]++;
 		if ( !haveOffset || off != current )
 		{
 			ctx->LoadIdentity();
@@ -383,7 +398,7 @@ public:
 	DECLARE_CLASS( C_MCWorldTranslucent, C_BaseEntity );
 	virtual bool ShouldDraw() { return true; }
 	virtual bool IsTransparent() { return true; }
-	virtual void GetRenderBounds( Vector &mins, Vector &maxs ) { mins.Init( -MAX_COORD_FLOAT, -MAX_COORD_FLOAT, -MAX_COORD_FLOAT ); maxs.Init( MAX_COORD_FLOAT, MAX_COORD_FLOAT, MAX_COORD_FLOAT ); }
+	virtual void GetRenderBounds( Vector &mins, Vector &maxs ) { mins = MC_WorldMins(); maxs = MC_WorldMaxs(); }
 	virtual int DrawModel( int flags )
 	{
 		g_Meshes.Draw( PASS_TRANSLUCENT );
@@ -481,8 +496,8 @@ int C_MCWorld::DrawModel( int flags )
 
 void C_MCWorld::GetRenderBounds( Vector &mins, Vector &maxs )
 {
-	mins.Init( -MAX_COORD_FLOAT, -MAX_COORD_FLOAT, -MAX_COORD_FLOAT );
-	maxs.Init( MAX_COORD_FLOAT, MAX_COORD_FLOAT, MAX_COORD_FLOAT );
+	mins = MC_WorldMins();
+	maxs = MC_WorldMaxs();
 }
 
 //=============================================================================
@@ -532,4 +547,14 @@ CON_COMMAND( cl_mc_status, "Show Minecraft bridge status (client)" )
 {
 	MCBridge().PrintStatus();
 	Msg( "TF2MC[client]: %d meshed sections, %d physics sections\n", g_Meshes.SectionCount(), MCPhysics().Count() );
+	bool fresh = gpGlobals->framecount - s_nDrawFrame <= 2;
+	Msg( "TF2MC[client]: last drawn frame %d (now %d): opaque calls %d drawn %d culled %d | translucent calls %d drawn %d\n",
+		 s_nDrawFrame, gpGlobals->framecount, fresh ? s_nDrawCalls[PASS_OPAQUE] : 0, fresh ? s_nDrawnSections[PASS_OPAQUE] : 0,
+		 fresh ? s_nCulledSections[PASS_OPAQUE] : 0, fresh ? s_nDrawCalls[PASS_TRANSLUCENT] : 0, fresh ? s_nDrawnSections[PASS_TRANSLUCENT] : 0 );
+	IMaterial *m = g_Meshes.DebugMaterial();
+	Msg( "TF2MC[client]: material %s%s  mc_draw %d\n", m ? m->GetName() : "<none>", m && m->IsErrorMaterial() ? " (ERROR - missing vmt)" : "", mc_draw.GetInt() );
+	C_MCWorld *w = C_MCWorld::Get();
+	Msg( "TF2MC[client]: mc_world entity %s  render handle %s  dormant %d\n", w ? "present" : "MISSING",
+		 w && w->GetRenderHandle() != INVALID_CLIENT_RENDER_HANDLE ? "ok" : "none", w ? (int)w->IsDormant() : -1 );
+	MC_DebugProbe( C_BasePlayer::GetLocalPlayer(), "client" );
 }

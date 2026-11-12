@@ -1,6 +1,7 @@
 // Block-light pass (torches, lava, glowstone): added on top of the sky-lit pass
 "UnlitGeneric"
 {
+	"$nocull"	"1"
 	"$basetexture"		"mc/atlas"
 	"$vertexcolor"		"1"
 	"$alphatest"		"1"

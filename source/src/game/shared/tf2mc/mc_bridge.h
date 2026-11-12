@@ -120,6 +120,8 @@ private:
 };
 
 CMCBridge &MCBridge();
+// Prints where the player is in both worlds and what a downward trace hits (engine vs voxels).
+void MC_DebugProbe( CBaseEntity *pPlayer, const char *tag );
 
 // True when the bridge is up and the world is mirrored (used by TF2 patches).
 bool MC_IsActive();

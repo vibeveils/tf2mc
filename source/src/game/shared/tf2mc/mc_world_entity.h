@@ -16,6 +16,9 @@
 class CMCWorldRenderer;
 #endif
 
+const Vector &MC_WorldMins();
+const Vector &MC_WorldMaxs();
+
 class CMCWorld : public CBaseEntity
 {
 public:

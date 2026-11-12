@@ -447,3 +447,53 @@ const char *MC_PrettyItemName( const char *id, char *out, int outLen )
 	}
 	return out;
 }
+
+//-----------------------------------------------------------------------------
+// Diagnostics: mc_status / cl_mc_status
+//-----------------------------------------------------------------------------
+#include "tf2mc/mc_world_entity.h"
+
+void MC_DebugProbe( CBaseEntity *pPlayer, const char *tag )
+{
+	if ( !pPlayer ) { Msg( "TF2MC[%s]: no player\n", tag ); return; }
+	CMCBridge &b = MCBridge();
+	const mc::Coords &c = b.Coords();
+	Vector pos = pPlayer->GetAbsOrigin();
+	mc::Vec3d m = c.ToMC( MC_V( pos ) );
+	int bx = mc::FloorI( m.x ), bz = mc::FloorI( m.z );
+	bool loaded = b.World().IsColumnLoaded( mc::FloorDiv16( bx ), mc::FloorDiv16( bz ) );
+	int top = loaded ? b.World().TopSolidY( bx, bz ) : -9999;
+	Msg( "TF2MC[%s]: player %d at source (%.0f %.0f %.0f) = mc (%.1f %.1f %.1f)  column %s  top solid y %d  vel z %.0f\n",
+		 tag, pPlayer->entindex(), pos.x, pos.y, pos.z, m.x, m.y, m.z, loaded ? "loaded" : "NOT LOADED", top, pPlayer->GetAbsVelocity().z );
+
+	CBaseEntity *w = CMCWorld::Get();
+	if ( !w ) { Msg( "TF2MC[%s]: no mc_world entity\n", tag ); return; }
+	Vector wmins, wmaxs;
+	w->CollisionProp()->WorldSpaceSurroundingBounds( &wmins, &wmaxs );
+	Msg( "TF2MC[%s]: mc_world solid %d flags 0x%x group %d partition %s origin (%.0f %.0f %.0f) bounds (%.0f..%.0f)\n",
+		 tag, (int)w->GetSolid(), w->GetSolidFlags(), w->GetCollisionGroup(),
+		 w->CollisionProp()->GetPartitionHandle() != PARTITION_INVALID_HANDLE ? "ok" : "NONE",
+		 w->GetAbsOrigin().x, w->GetAbsOrigin().y, w->GetAbsOrigin().z, wmins.x, wmaxs.x );
+
+	Vector hmins( -24, -24, 0 ), hmaxs( 24, 24, 82 );
+	Vector end = pos - Vector( 0, 0, 8192 );
+	Ray_t ray;
+	ray.Init( pos, end, hmins, hmaxs );
+
+	trace_t direct;
+	memset( &direct, 0, sizeof( direct ) );
+	direct.fraction = 1.f;
+	bool hitDirect = b.TraceRay( ray, MASK_PLAYERSOLID, direct, w );
+
+	trace_t clip;
+	enginetrace->ClipRayToEntity( ray, MASK_PLAYERSOLID, w, &clip );
+
+	trace_t full;
+	CTraceFilterSimple filter( pPlayer, COLLISION_GROUP_PLAYER_MOVEMENT );
+	enginetrace->TraceRay( ray, MASK_PLAYERSOLID, &filter, &full );
+
+	Msg( "TF2MC[%s]: trace down 8192: voxels %s %.0f | engine->mc_world %s %.0f | full engine trace frac %.3f hit %s%s\n", tag,
+		 hitDirect ? "hit at z" : "miss", hitDirect ? direct.endpos.z : 0.f,
+		 clip.fraction < 1.f ? "hit at z" : "miss", clip.fraction < 1.f ? clip.endpos.z : 0.f,
+		 full.fraction, full.m_pEnt ? full.m_pEnt->GetClassname() : "nothing", full.startsolid ? " (startsolid)" : "" );
+}

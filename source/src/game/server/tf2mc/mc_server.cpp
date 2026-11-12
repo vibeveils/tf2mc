@@ -742,6 +742,13 @@ CON_COMMAND( mc_status, "Show Minecraft bridge status (server)" )
 {
 	MCBridge().PrintStatus();
 	g_MCServerSystem.PrintOrigin();
+	CBaseEntity *w = CMCWorld::Get();
+	Msg( "TF2MC[server]: mc_world entity %s\n", w ? "present" : "MISSING" );
+	for ( int i = 1; i <= gpGlobals->maxClients; ++i )
+	{
+		CBasePlayer *p = UTIL_PlayerByIndex( i );
+		if ( p && p->IsConnected() ) MC_DebugProbe( p, "server" );
+	}
 }
 
 CON_COMMAND( mc_rebase, "Force the floating origin to Minecraft x z: mc_rebase <x> <z>" )
