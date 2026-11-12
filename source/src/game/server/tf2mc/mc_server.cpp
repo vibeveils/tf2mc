@@ -21,6 +21,8 @@
 #include "igamesystem.h"
 #include "GameEventListener.h"
 #include "takedamageinfo.h"
+#include "in_buttons.h"
+#include "world.h"
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"

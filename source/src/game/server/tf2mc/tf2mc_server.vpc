@@ -2,7 +2,7 @@
 //	TF2MC (TF2 <-> Minecraft bridge) - included from server_tf.vpc
 //-----------------------------------------------------------------------------
 
-$Project "Server (TF)"
+$Project
 {
 	$Folder "Source Files"
 	{

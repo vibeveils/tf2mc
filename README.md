@@ -147,15 +147,15 @@ tests/run_preview.sh # meshes a scene with the real mesher and software-renders 
   - The asset tool (block atlas, item atlas, isometric icons) on a synthetic jar.
   - The mesher's output, by software rendering (images above).
   - The TF2 patch applies cleanly to the current `source-sdk-2013`, and the hook script is idempotent.
-- **Written against the real APIs but not compiled here:**
-  - The Source glue: the full SDK build (Steam runtime, protobuf toolchain) wasn't available.
-  - The Minecraft-side glue: Gradle couldn't fetch Minecraft/Fabric. Its 26.3 names were cross-checked
-    against Carpet's 26.3 sources.
-
-  Expect a round of compile fixes on first build. The likeliest spots:
-  - Minecraft: `ExplosionDamageCalculator` overrides, `LevelLightEngine` accessors, the
-    `PlayerList#broadcastChatMessage` mixin target.
-  - Source: vgui popup details in the inventory screen.
+- **Compiled:**
+  - **TF2 mod (Linux):** compiles and links against the current `source-sdk-2013` with the SDK's own
+    VPC/ninja build. All TF2MC sources and the patched TF2 files build for both DLLs, with no warnings
+    in TF2MC code and no unresolved TF2MC symbols.
+  - **Minecraft mod:** compiles against Minecraft 26.3 with Fabric Loom in GitHub Actions.
+- **Not yet verified:**
+  - In-game behaviour: running TF2 and Minecraft together.
+  - Mixin targets, which are only checked when the mod loads.
+  - The Windows build.
 - If the world looks inside-out, toggle `mc_flip_winding 1`.
 
 ## Known limitations

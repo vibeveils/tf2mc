@@ -5,6 +5,8 @@
 #include "vphysics_interface.h"
 #ifdef CLIENT_DLL
 #include "c_world.h"
+#else
+#include "world.h"
 #endif
 
 // memdbgon must be the last include file in a .cpp file!!!

@@ -7,6 +7,8 @@
 #include "physics_shared.h"
 #include "coordsize.h"
 #include "igamemovement.h"
+#include "in_buttons.h"
+#include "engine/IEngineSound.h"
 #ifdef CLIENT_DLL
 #include "c_baseplayer.h"
 #include "c_recipientfilter.h"
