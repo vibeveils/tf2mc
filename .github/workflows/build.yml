@@ -35,6 +35,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Scripts are always invoked through bash, so a missing executable bit (e.g. files uploaded
+      # through the GitHub web UI or committed from Windows) doesn't break the build.
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -45,10 +47,10 @@ jobs:
           python-version: '3.13'
 
       - name: Core unit tests
-        run: tests/run_tests.sh
+        run: bash tests/run_tests.sh
 
       - name: End-to-end (Java BridgeServer + fake world <-> C++ client)
-        run: tests/run_e2e.sh
+        run: bash tests/run_e2e.sh
 
       - name: Core compiles as C++14 with the SDK's banned-function macros
         run: |
@@ -62,7 +64,7 @@ jobs:
       - name: Mesher preview render
         run: |
           pip install pillow
-          tests/run_preview.sh
+          bash tests/run_preview.sh
 
       - uses: actions/upload-artifact@v4
         with:
@@ -119,7 +121,7 @@ jobs:
           fetch-depth: 1
 
       - name: Install TF2MC into the SDK (sources, content, hooks)
-        run: tf2mc/scripts/install_into_sdk.sh "$GITHUB_WORKSPACE/sdk"
+        run: bash tf2mc/scripts/install_into_sdk.sh "$GITHUB_WORKSPACE/sdk"
 
       - name: Restore compiler cache
         uses: actions/cache@v4
@@ -129,7 +131,7 @@ jobs:
           restore-keys: ccache-linux-${{ env.SDK_REF }}-
 
       - name: Build (vpc + ninja inside sniper)
-        run: tf2mc/scripts/ci/build_sdk_linux.sh "$GITHUB_WORKSPACE/sdk" release
+        run: bash tf2mc/scripts/ci/build_sdk_linux.sh "$GITHUB_WORKSPACE/sdk" release
 
       - name: Collect mod
         run: |
