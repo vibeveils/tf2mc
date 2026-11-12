@@ -1,0 +1,232 @@
+# TF2MC CI: tests, the Minecraft 26.3 Fabric mod, and the TF2 (Source SDK 2013) mod for Linux + Windows.
+# Pushing a tag like v1.0.0 also publishes a GitHub release with everything packaged.
+name: Build
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      sdk_ref:
+        description: 'source-sdk-2013 branch/tag/commit to build against'
+        default: 'master'
+        required: false
+
+permissions:
+  contents: write   # releases on tags
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SDK_REPO: ValveSoftware/source-sdk-2013
+  SDK_REF: ${{ github.event.inputs.sdk_ref || 'master' }}
+  JAVA_VERSION: '25'
+  GRADLE_VERSION: '9.6.0'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  tests:
+    name: Core tests + Java/C++ end-to-end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Core unit tests
+        run: tests/run_tests.sh
+
+      - name: End-to-end (Java BridgeServer + fake world <-> C++ client)
+        run: tests/run_e2e.sh
+
+      - name: Core compiles as C++14 with the SDK's banned-function macros
+        run: |
+          C=source/src/game/shared/tf2mc/core
+          for f in $C/*.cpp; do
+            g++ -std=c++14 -fsyntax-only -Wall -Werror -Wno-unused-parameter \
+              -D'sprintf=use_Q_snprintf_instead_of_sprintf' -D'strncpy=use_Q_strncpy_instead' -D'_snprintf=use_Q_snprintf_instead' \
+              -I$C "$f"
+          done
+
+      - name: Mesher preview render
+        run: |
+          pip install pillow
+          tests/run_preview.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mesher-preview
+          path: tests/build/*.png
+
+  # ---------------------------------------------------------------------------
+  minecraft:
+    name: Minecraft mod (Fabric 26.3)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ env.GRADLE_VERSION }}
+
+      - name: Build tf2bridge
+        working-directory: minecraft
+        run: gradle build --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: minecraft-mod
+          path: |
+            minecraft/build/libs/*.jar
+            !minecraft/build/libs/*-sources.jar
+
+  # ---------------------------------------------------------------------------
+  tf2-linux:
+    name: TF2 mod (Linux, Steam Runtime sniper)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free disk space (SDK + container image are large)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: actions/checkout@v4
+        with:
+          path: tf2mc
+
+      - name: Checkout Source SDK 2013
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SDK_REPO }}
+          ref: ${{ env.SDK_REF }}
+          path: sdk
+          fetch-depth: 1
+
+      - name: Install TF2MC into the SDK (sources, content, hooks)
+        run: tf2mc/scripts/install_into_sdk.sh "$GITHUB_WORKSPACE/sdk"
+
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: sdk/.ccache
+          key: ccache-linux-${{ env.SDK_REF }}-${{ github.sha }}
+          restore-keys: ccache-linux-${{ env.SDK_REF }}-
+
+      - name: Build (vpc + ninja inside sniper)
+        run: tf2mc/scripts/ci/build_sdk_linux.sh "$GITHUB_WORKSPACE/sdk" release
+
+      - name: Collect mod
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" sdk
+          mkdir -p out
+          cp -R sdk/game/mod_tf out/mod_tf
+          ls -R out/mod_tf/bin | head -50
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tf2-mod-linux
+          path: out/mod_tf
+
+  # ---------------------------------------------------------------------------
+  tf2-windows:
+    name: TF2 mod (Windows, VS 2022)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: tf2mc
+
+      - name: Checkout Source SDK 2013
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SDK_REPO }}
+          ref: ${{ env.SDK_REF }}
+          path: sdk
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Install TF2MC into the SDK (sources, content, hooks)
+        shell: cmd
+        run: call tf2mc\scripts\install_into_sdk.bat "%GITHUB_WORKSPACE%\sdk"
+
+      - name: Generate everything.sln (VPC)
+        shell: cmd
+        working-directory: sdk/src
+        run: call createallprojects.bat
+
+      - name: Build
+        shell: cmd
+        working-directory: sdk/src
+        run: msbuild everything.sln /m /p:Configuration=Release /v:minimal /nologo
+
+      - name: Collect mod
+        shell: bash
+        run: |
+          mkdir -p out
+          cp -R sdk/game/mod_tf out/mod_tf
+          find out/mod_tf/bin -name "*.dll" | head -20
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tf2-mod-windows
+          path: out/mod_tf
+
+  # ---------------------------------------------------------------------------
+  package:
+    name: Package
+    needs: [tests, minecraft, tf2-linux, tf2-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Assemble release folder
+        run: |
+          set -e
+          R=release/tf2mc
+          mkdir -p $R/mod_tf $R/minecraft-mods $R/tools $R/scripts
+          # mod content + binaries for both platforms (content is identical, binaries merge)
+          cp -R artifacts/tf2-mod-linux/. $R/mod_tf/
+          cp -R artifacts/tf2-mod-windows/. $R/mod_tf/
+          cp artifacts/minecraft-mod/*.jar $R/minecraft-mods/
+          cp tools/mc_assets.py $R/tools/
+          cp scripts/start_minecraft_headless.* scripts/run_all.sh $R/scripts/
+          cp README.md docs/PROTOCOL.md $R/
+          (cd release && zip -qr ../tf2mc-${GITHUB_REF_NAME//\//-}.zip tf2mc)
+          ls -la *.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tf2mc-package
+          path: tf2mc-*.zip
+
+      - name: Publish release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: tf2mc-*.zip
+          generate_release_notes: true
