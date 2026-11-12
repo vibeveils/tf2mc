@@ -497,3 +497,33 @@ void MC_DebugProbe( CBaseEntity *pPlayer, const char *tag )
 		 clip.fraction < 1.f ? "hit at z" : "miss", clip.fraction < 1.f ? clip.endpos.z : 0.f,
 		 full.fraction, full.m_pEnt ? full.m_pEnt->GetClassname() : "nothing", full.startsolid ? " (startsolid)" : "" );
 }
+
+//-----------------------------------------------------------------------------
+// Trace merge (hooked into UTIL_TraceLine/Hull/Ray/Entity and TF player movement)
+//-----------------------------------------------------------------------------
+void MC_ClipTrace( const Ray_t &ray, unsigned int mask, ITraceFilter *pFilter, trace_t *ptr )
+{
+	if ( !ptr || !( mask & CONTENTS_SOLID ) ) return;
+	CMCBridge &b = MCBridge();
+	if ( !b.IsReady() ) return;
+	CBaseEntity *w = CMCWorld::Get();
+	if ( !w ) return;
+	if ( ptr->m_pEnt == w ) return;                                         // the engine already reached it
+	if ( pFilter && pFilter->GetTraceType() == TRACE_ENTITIES_ONLY ) return;  // world excluded on purpose
+	if ( ptr->allsolid || ( ptr->startsolid && ptr->fraction <= 0.f ) ) return;  // can't get any shorter
+
+	trace_t t;
+	memset( &t, 0, sizeof( t ) );
+	t.fraction = 1.f;
+	if ( !b.TraceRay( ray, mask, t, w ) ) return;
+	if ( t.fraction < ptr->fraction || ( t.startsolid && !ptr->startsolid ) )
+		*ptr = t;
+}
+
+void MC_ClipEntityTrace( ICollideable *pCollision, const Vector &vecAbsStart, const Vector &vecAbsEnd, unsigned int mask, ITraceFilter *pFilter, trace_t *ptr )
+{
+	if ( !pCollision || !MCBridge().IsReady() ) return;
+	Ray_t ray;
+	ray.Init( vecAbsStart, vecAbsEnd, pCollision->OBBMins(), pCollision->OBBMaxs() );
+	MC_ClipTrace( ray, mask, pFilter, ptr );
+}

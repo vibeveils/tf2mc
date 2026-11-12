@@ -32,6 +32,21 @@ def edit(path, anchor, insert, after=True, replace=None):
     return "ok"
 
 
+def edit_all(path, old, new):
+    """Replace every occurrence of `old` (idempotent: skipped when `new` is already there)."""
+    with open(path, newline="") as f:
+        s = f.read()
+    nl = "\r\n" if "\r\n" in s else "\n"
+    o, n = old.replace("\n", nl), new.replace("\n", nl)
+    if n in s:
+        return "already"
+    if o not in s:
+        raise SystemExit(f"{path}: anchor not found:\n{old}")
+    with open(path, "w", newline="") as f:
+        f.write(s.replace(o, n))
+    return "ok"
+
+
 def main(sdk):
     src = os.path.join(sdk, "src")
     gm = os.path.join(src, "game/shared/tf/tf_gamemovement.cpp")
@@ -57,6 +72,27 @@ def main(sdk):
         r.append(edit(gm, call, None, replace=f"MC_PointContents( vecPoint, {call} ) /* TF2MC: Minecraft water */"))
     r.append(edit(gm, "void CTFGameMovement::FullWalkMove()\n{\n",
                   "\tMC_ClimbMove( player, mv, GetPlayerMins(), GetPlayerMaxs() );\t// TF2MC: ladders, vines, scaffolding\n\n"))
+
+    # --- collision: every game-side trace also sweeps the Minecraft voxels. The engine's SOLID_CUSTOM
+    #     path doesn't reliably reach mc_world, so movement, bullets, melee and projectiles ask directly.
+    us_h = os.path.join(src, "game/shared/util_shared.h")
+    us_c = os.path.join(src, "game/shared/util_shared.cpp")
+    r.append(edit(us_h, "extern ConVar r_visualizetraces;\n",
+                  "\n// TF2MC: merge the Minecraft voxel world into a finished trace (tf2mc/mc_bridge.cpp)\n"
+                  "void MC_ClipTrace( const Ray_t &ray, unsigned int mask, ITraceFilter *pFilter, trace_t *ptr );\t// TF2MC\n"
+                  "void MC_ClipEntityTrace( ICollideable *pCollision, const Vector &vecAbsStart, const Vector &vecAbsEnd, unsigned int mask, ITraceFilter *pFilter, trace_t *ptr );\t// TF2MC\n"))
+    r.append(edit_all(us_h, "\tenginetrace->TraceRay( ray, mask, &traceFilter, ptr );\n",
+                      "\tenginetrace->TraceRay( ray, mask, &traceFilter, ptr );\n\tMC_ClipTrace( ray, mask, &traceFilter, ptr );\t// TF2MC\n"))
+    r.append(edit_all(us_h, "\tenginetrace->TraceRay( ray, mask, pFilter, ptr );\n",
+                      "\tenginetrace->TraceRay( ray, mask, pFilter, ptr );\n\tMC_ClipTrace( ray, mask, pFilter, ptr );\t// TF2MC\n"))
+    r.append(edit_all(us_c, "pCollision->GetCollisionAngles(), mask, &traceFilter, ptr );\n",
+                      "pCollision->GetCollisionAngles(), mask, &traceFilter, ptr );\n\tMC_ClipEntityTrace( pCollision, vecAbsStart, vecAbsEnd, mask, &traceFilter, ptr );\t// TF2MC\n"))
+    r.append(edit_all(us_c, "pCollision->GetCollisionAngles(), mask, pFilter, ptr );\n",
+                      "pCollision->GetCollisionAngles(), mask, pFilter, ptr );\n\tMC_ClipEntityTrace( pCollision, vecAbsStart, vecAbsEnd, mask, pFilter, ptr );\t// TF2MC\n"))
+    r.append(edit_all(gm, "\tenginetrace->TraceRay( ray, PlayerSolidMask(), &traceFilter, &pm );\n",
+                      "\tenginetrace->TraceRay( ray, PlayerSolidMask(), &traceFilter, &pm );\n\tMC_ClipTrace( ray, PlayerSolidMask(), &traceFilter, &pm );\t// TF2MC\n"))
+    r.append(edit_all(gm, "\tenginetrace->TraceRay( ray, fMask, &traceFilter, &pm );\n",
+                      "\tenginetrace->TraceRay( ray, fMask, &traceFilter, &pm );\n\tMC_ClipTrace( ray, fMask, &traceFilter, &pm );\t// TF2MC\n"))
 
     # --- player: Civilian = Minecraft mode, PostThink interaction, no TF weapons for it
     r.append(edit(pl, '#include "gc_clientsystem.h"', '\n#include "tf2mc/mc_bridge.h"\t\t// TF2MC\n#include "tf2mc/mc_server.h"\t\t// TF2MC'))

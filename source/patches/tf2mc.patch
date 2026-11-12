@@ -1,6 +1,6 @@
 diff -ruN a/src/game/client/client_tf.vpc b/src/game/client/client_tf.vpc
 --- a/src/game/client/client_tf.vpc	2026-11-05 04:21:23.000000000 +0000
-+++ b/src/game/client/client_tf.vpc	2026-11-12 21:23:28.312401633 +0000
++++ b/src/game/client/client_tf.vpc	2026-11-12 23:02:54.447484898 +0000
 @@ -15,6 +15,7 @@
  $include "$SRCDIR\game\shared\tf\tf_gcmessages_include.vpc"
  $include "$SRCDIR\game\shared\tf\tf_proto_def_messages_include.vpc"
@@ -11,7 +11,7 @@ diff -ruN a/src/game/client/client_tf.vpc b/src/game/client/client_tf.vpc
  
 diff -ruN a/src/game/server/server_tf.vpc b/src/game/server/server_tf.vpc
 --- a/src/game/server/server_tf.vpc	2026-11-05 04:21:23.000000000 +0000
-+++ b/src/game/server/server_tf.vpc	2026-11-12 21:23:28.313033849 +0000
++++ b/src/game/server/server_tf.vpc	2026-11-12 23:02:54.447645361 +0000
 @@ -10,6 +10,7 @@
  
  $Include "$SRCDIR\game\server\server_base.vpc"
@@ -22,7 +22,7 @@ diff -ruN a/src/game/server/server_tf.vpc b/src/game/server/server_tf.vpc
  $Include "$SRCDIR\game\server\nav_mesh.vpc"
 diff -ruN a/src/game/server/tf/tf_obj_sentrygun.cpp b/src/game/server/tf/tf_obj_sentrygun.cpp
 --- a/src/game/server/tf/tf_obj_sentrygun.cpp	2026-11-05 04:21:23.000000000 +0000
-+++ b/src/game/server/tf/tf_obj_sentrygun.cpp	2026-11-12 21:23:28.302510015 +0000
++++ b/src/game/server/tf/tf_obj_sentrygun.cpp	2026-11-12 23:02:54.441243755 +0000
 @@ -25,6 +25,7 @@
  #include "tf_weapon_knife.h"
  #include "tf_logic_robot_destruction.h"
@@ -44,7 +44,7 @@ diff -ruN a/src/game/server/tf/tf_obj_sentrygun.cpp b/src/game/server/tf/tf_obj_
  			// target objects
 diff -ruN a/src/game/server/tf/tf_player.cpp b/src/game/server/tf/tf_player.cpp
 --- a/src/game/server/tf/tf_player.cpp	2026-11-05 04:21:23.000000000 +0000
-+++ b/src/game/server/tf/tf_player.cpp	2026-11-12 21:23:28.300683574 +0000
++++ b/src/game/server/tf/tf_player.cpp	2026-11-12 23:02:54.440361643 +0000
 @@ -136,6 +136,8 @@
  #include "haptics/haptic_utils.h"
  
@@ -88,7 +88,7 @@ diff -ruN a/src/game/server/tf/tf_player.cpp b/src/game/server/tf/tf_player.cpp
  		{
 diff -ruN a/src/game/shared/tf/tf_flame.cpp b/src/game/shared/tf/tf_flame.cpp
 --- a/src/game/shared/tf/tf_flame.cpp	2026-11-05 04:21:23.000000000 +0000
-+++ b/src/game/shared/tf/tf_flame.cpp	2026-11-12 21:23:28.311780407 +0000
++++ b/src/game/shared/tf/tf_flame.cpp	2026-11-12 23:02:54.447305238 +0000
 @@ -601,7 +601,7 @@
  		// only add enemy robots
  		m_Targets.AddToTail( pEnt );
@@ -109,7 +109,7 @@ diff -ruN a/src/game/shared/tf/tf_flame.cpp b/src/game/shared/tf/tf_flame.cpp
  	}
 diff -ruN a/src/game/shared/tf/tf_gamemovement.cpp b/src/game/shared/tf/tf_gamemovement.cpp
 --- a/src/game/shared/tf/tf_gamemovement.cpp	2026-11-05 04:21:23.000000000 +0000
-+++ b/src/game/shared/tf/tf_gamemovement.cpp	2026-11-12 21:23:28.289640570 +0000
++++ b/src/game/shared/tf/tf_gamemovement.cpp	2026-11-12 23:02:54.433089997 +0000
 @@ -22,6 +22,7 @@
  #include "tf_weapon_buff_item.h"
  #include "halloween/tf_weapon_spellbook.h"
@@ -161,7 +161,23 @@ diff -ruN a/src/game/shared/tf/tf_gamemovement.cpp b/src/game/shared/tf/tf_gamem
  			if ( nContents & MASK_WATER )
  			{
  				// Set the water level at our waist.
-@@ -2621,6 +2631,8 @@
+@@ -2300,6 +2310,7 @@
+ 	
+ 	CTraceFilterObject traceFilter( mv->m_nPlayerHandle.Get(), collisionGroup );
+ 	enginetrace->TraceRay( ray, PlayerSolidMask(), &traceFilter, &pm );
++	MC_ClipTrace( ray, PlayerSolidMask(), &traceFilter, &pm );	// TF2MC
+ 
+ 	if ( (pm.contents & PlayerSolidMask()) && pm.m_pEnt )
+ 	{
+@@ -2325,6 +2336,7 @@
+ 	CTraceFilterObject traceFilter( mv->m_nPlayerHandle.Get(), collisionGroup );
+ 
+ 	enginetrace->TraceRay( ray, fMask, &traceFilter, &pm );
++	MC_ClipTrace( ray, fMask, &traceFilter, &pm );	// TF2MC
+ }
+ 
+ //-----------------------------------------------------------------------------
+@@ -2621,6 +2633,8 @@
  //-----------------------------------------------------------------------------
  void CTFGameMovement::FullWalkMove()
  {
@@ -172,7 +188,7 @@ diff -ruN a/src/game/shared/tf/tf_gamemovement.cpp b/src/game/shared/tf/tf_gamem
  		if ( m_pTFPlayer->m_Shared.InCond( TF_COND_PARACHUTE_ACTIVE ) && mv->m_vecVelocity[2] < 0 )
 diff -ruN a/src/game/shared/tf/tf_gamerules.cpp b/src/game/shared/tf/tf_gamerules.cpp
 --- a/src/game/shared/tf/tf_gamerules.cpp	2026-11-05 04:21:23.000000000 +0000
-+++ b/src/game/shared/tf/tf_gamerules.cpp	2026-11-12 21:23:28.310347651 +0000
++++ b/src/game/shared/tf/tf_gamerules.cpp	2026-11-12 23:02:54.446472284 +0000
 @@ -76,6 +76,9 @@
  	#include "econ_gcmessages.h"
  	#include "vgui/ILocalize.h"
@@ -202,3 +218,84 @@ diff -ruN a/src/game/shared/tf/tf_gamerules.cpp b/src/game/shared/tf/tf_gamerule
  	float flRadSqr = (info.flRadius * info.flRadius);
  
  	int iDamageEnemies = 0;
+diff -ruN a/src/game/shared/util_shared.cpp b/src/game/shared/util_shared.cpp
+--- a/src/game/shared/util_shared.cpp	2026-11-05 04:21:23.000000000 +0000
++++ b/src/game/shared/util_shared.cpp	2026-11-12 23:02:54.432062778 +0000
+@@ -639,6 +639,7 @@
+ 	UTIL_Portal_TraceEntity( pEntity, vecAbsStart, vecAbsEnd, mask, &traceFilter, ptr );
+ #else
+ 	enginetrace->SweepCollideable( pCollision, vecAbsStart, vecAbsEnd, pCollision->GetCollisionAngles(), mask, &traceFilter, ptr );
++	MC_ClipEntityTrace( pCollision, vecAbsStart, vecAbsEnd, mask, &traceFilter, ptr );	// TF2MC
+ #endif
+ }
+ 
+@@ -658,6 +659,7 @@
+  	UTIL_Portal_TraceEntity( pEntity, vecAbsStart, vecAbsEnd, mask, &traceFilter, ptr );
+ #else
+ 	enginetrace->SweepCollideable( pCollision, vecAbsStart, vecAbsEnd, pCollision->GetCollisionAngles(), mask, &traceFilter, ptr );
++	MC_ClipEntityTrace( pCollision, vecAbsStart, vecAbsEnd, mask, &traceFilter, ptr );	// TF2MC
+ #endif
+ }
+ 
+@@ -675,6 +677,7 @@
+ 	UTIL_Portal_TraceEntity( pEntity, vecAbsStart, vecAbsEnd, mask, pFilter, ptr );
+ #else
+ 	enginetrace->SweepCollideable( pCollision, vecAbsStart, vecAbsEnd, pCollision->GetCollisionAngles(), mask, pFilter, ptr );
++	MC_ClipEntityTrace( pCollision, vecAbsStart, vecAbsEnd, mask, pFilter, ptr );	// TF2MC
+ #endif
+ }
+ 
+diff -ruN a/src/game/shared/util_shared.h b/src/game/shared/util_shared.h
+--- a/src/game/shared/util_shared.h	2026-11-05 04:21:23.000000000 +0000
++++ b/src/game/shared/util_shared.h	2026-11-12 23:02:54.431634572 +0000
+@@ -246,6 +246,10 @@
+ 
+ extern ConVar r_visualizetraces;
+ 
++// TF2MC: merge the Minecraft voxel world into a finished trace (tf2mc/mc_bridge.cpp)
++void MC_ClipTrace( const Ray_t &ray, unsigned int mask, ITraceFilter *pFilter, trace_t *ptr );	// TF2MC
++void MC_ClipEntityTrace( ICollideable *pCollision, const Vector &vecAbsStart, const Vector &vecAbsEnd, unsigned int mask, ITraceFilter *pFilter, trace_t *ptr );	// TF2MC
++
+ inline void UTIL_TraceLine( const Vector& vecAbsStart, const Vector& vecAbsEnd, unsigned int mask, 
+ 					 const IHandleEntity *ignore, int collisionGroup, trace_t *ptr )
+ {
+@@ -254,6 +258,7 @@
+ 	CTraceFilterSimple traceFilter( ignore, collisionGroup );
+ 
+ 	enginetrace->TraceRay( ray, mask, &traceFilter, ptr );
++	MC_ClipTrace( ray, mask, &traceFilter, ptr );	// TF2MC
+ 
+ 	if( r_visualizetraces.GetBool() )
+ 	{
+@@ -268,6 +273,7 @@
+ 	ray.Init( vecAbsStart, vecAbsEnd );
+ 
+ 	enginetrace->TraceRay( ray, mask, pFilter, ptr );
++	MC_ClipTrace( ray, mask, pFilter, ptr );	// TF2MC
+ 
+ 	if( r_visualizetraces.GetBool() )
+ 	{
+@@ -284,6 +290,7 @@
+ 	CTraceFilterSimple traceFilter( ignore, collisionGroup );
+ 
+ 	enginetrace->TraceRay( ray, mask, &traceFilter, ptr );
++	MC_ClipTrace( ray, mask, &traceFilter, ptr );	// TF2MC
+ 
+ 	if( r_visualizetraces.GetBool() )
+ 	{
+@@ -298,6 +305,7 @@
+ 	ray.Init( vecAbsStart, vecAbsEnd, hullMin, hullMax );
+ 
+ 	enginetrace->TraceRay( ray, mask, pFilter, ptr );
++	MC_ClipTrace( ray, mask, pFilter, ptr );	// TF2MC
+ 
+ 	if( r_visualizetraces.GetBool() )
+ 	{
+@@ -311,6 +319,7 @@
+ 	CTraceFilterSimple traceFilter( ignore, collisionGroup, pExtraShouldHitCheckFn );
+ 
+ 	enginetrace->TraceRay( ray, mask, &traceFilter, ptr );
++	MC_ClipTrace( ray, mask, &traceFilter, ptr );	// TF2MC
+ 	
+ 	if( r_visualizetraces.GetBool() )
+ 	{
