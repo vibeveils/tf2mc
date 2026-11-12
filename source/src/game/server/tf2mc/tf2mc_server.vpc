@@ -1,0 +1,73 @@
+//-----------------------------------------------------------------------------
+//	TF2MC (TF2 <-> Minecraft bridge) - included from server_tf.vpc
+//-----------------------------------------------------------------------------
+
+$Project "Server (TF)"
+{
+	$Folder "Source Files"
+	{
+		$Folder "TF2MC"
+		{
+			$File	"tf2mc\mc_server.cpp"
+			$File	"tf2mc\mc_server.h"
+			$File	"$SRCDIR\game\shared\tf2mc\tf2mc_core.h"
+			$File	"$SRCDIR\game\shared\tf2mc\mc_bridge.h"
+			$File	"$SRCDIR\game\shared\tf2mc\mc_bridge.cpp"
+			$File	"$SRCDIR\game\shared\tf2mc\mc_world_entity.h"
+			$File	"$SRCDIR\game\shared\tf2mc\mc_world_entity.cpp"
+			$File	"$SRCDIR\game\shared\tf2mc\mc_mob.h"
+			$File	"$SRCDIR\game\shared\tf2mc\mc_mob.cpp"
+			$File	"$SRCDIR\game\shared\tf2mc\mc_physics.h"
+			$File	"$SRCDIR\game\shared\tf2mc\mc_physics.cpp"
+
+			$Folder "Core (engine independent, no PCH)"
+			{
+				$File	"$SRCDIR\game\shared\tf2mc\core\mc_world.h"
+				$File	"$SRCDIR\game\shared\tf2mc\core\mc_collide.h"
+				$File	"$SRCDIR\game\shared\tf2mc\core\mc_mesher.h"
+				$File	"$SRCDIR\game\shared\tf2mc\core\mc_net.h"
+				$File	"$SRCDIR\game\shared\tf2mc\core\mc_protocol.h"
+				$File	"$SRCDIR\game\shared\tf2mc\core\mc_world.cpp"
+				{
+					$Configuration
+					{
+						$Compiler
+						{
+							$Create/UsePrecompiledHeader	"Not Using Precompiled Headers"
+						}
+					}
+				}
+				$File	"$SRCDIR\game\shared\tf2mc\core\mc_collide.cpp"
+				{
+					$Configuration
+					{
+						$Compiler
+						{
+							$Create/UsePrecompiledHeader	"Not Using Precompiled Headers"
+						}
+					}
+				}
+				$File	"$SRCDIR\game\shared\tf2mc\core\mc_mesher.cpp"
+				{
+					$Configuration
+					{
+						$Compiler
+						{
+							$Create/UsePrecompiledHeader	"Not Using Precompiled Headers"
+						}
+					}
+				}
+				$File	"$SRCDIR\game\shared\tf2mc\core\mc_net.cpp"
+				{
+					$Configuration
+					{
+						$Compiler
+						{
+							$Create/UsePrecompiledHeader	"Not Using Precompiled Headers"
+						}
+					}
+				}
+			}
+		}
+	}
+}

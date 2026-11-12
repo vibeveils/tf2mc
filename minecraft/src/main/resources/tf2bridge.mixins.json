@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.tf2mc.bridge.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "mixins": [
+    "ConnectionAccessor",
+    "MinecraftServerMixin",
+    "PlayerListMixin",
+    "ServerLevelMixin"
+  ],
+  "injectors": { "defaultRequire": 1 }
+}

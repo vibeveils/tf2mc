@@ -1,0 +1,9 @@
+// TF2MC: optional Minecraft entity type -> Source model mapping.
+// Unmapped entities are drawn as coloured boxes sized to their Minecraft hitbox.
+// Models are scaled to nothing - pick models of a similar size, or author your own.
+MCEntityModels
+{
+	// "minecraft:zombie"		"models/bots/skeleton_sniper/skeleton_sniper.mdl"
+	// "minecraft:skeleton"	"models/bots/skeleton_sniper/skeleton_sniper.mdl"
+	// "minecraft:item/minecraft:diamond"	"models/items/ammopack_small.mdl"
+}

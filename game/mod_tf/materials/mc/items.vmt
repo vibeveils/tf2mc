@@ -1,0 +1,10 @@
+// Item icons for the hotbar / inventory screen (built by tools/mc_assets.py from your client jar)
+"UnlitGeneric"
+{
+	"$basetexture"	"mc/items"
+	"$vertexcolor"	"1"
+	"$vertexalpha"	"1"
+	"$translucent"	"1"
+	"$ignorez"	"1"
+	"$nocull"	"1"
+}

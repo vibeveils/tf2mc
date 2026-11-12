@@ -1,0 +1,33 @@
+// TF2MC: the Civilian slot is repurposed as "play as a regular Minecraft player".
+// Movement is tuned to Minecraft walking speed at the default mc_scale (64 units/block):
+//   4.317 blocks/s * 64 = 276 units/s. No TF2 weapons: Minecraft items are used through the bridge.
+PlayerClass
+{
+	"name"			"Civilian"
+	"model"			"models/player/scout.mdl"
+	"model_hands"		"models/weapons/c_models/c_scout_arms.mdl"
+	"localize_name"		"Minecraft"
+	"speed_max"		"276"
+	"health_max"		"160"
+	"armor_max"		"0"
+
+	"weapon1"		""
+	"weapon2"		""
+	"weapon3"		""
+
+	"AmmoMax"
+	{
+		"TF_AMMO_PRIMARY"	"0"
+		"TF_AMMO_SECONDARY"	"0"
+		"TF_AMMO_METAL"		"0"
+	}
+
+	"cameraoffset_forward"	"-150"
+	"cameraoffset_right"	"20"
+	"cameraoffset_up"	"0"
+
+	"sound_death"		"Scout.Death"
+	"sound_crit_death"	"Scout.CritDeath"
+	"sound_melee_death"	"Scout.MeleeDeath"
+	"sound_explosion_death"	"Scout.ExplosionDeath"
+}

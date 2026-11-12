@@ -1,0 +1,7 @@
+// Untextured Minecraft blocks / mob boxes (vertex colour only)
+"UnlitGeneric"
+{
+	"$basetexture"	"vgui/white"
+	"$vertexcolor"	"1"
+	"$nocull"	"1"
+}

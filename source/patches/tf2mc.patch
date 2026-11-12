@@ -1,0 +1,194 @@
+diff -ruN a/src/game/client/client_tf.vpc b/src/game/client/client_tf.vpc
+--- a/src/game/client/client_tf.vpc	2026-11-12 10:12:51.110471026 +0000
++++ b/src/game/client/client_tf.vpc	2026-11-12 10:13:03.382407655 +0000
+@@ -15,6 +15,7 @@
+ $include "$SRCDIR\game\shared\tf\tf_gcmessages_include.vpc"
+ $include "$SRCDIR\game\shared\tf\tf_proto_def_messages_include.vpc"
+ $Include "$SRCDIR\game\client\client_econ_base.vpc"
++$Include "$SRCDIR\game\client\tf2mc\tf2mc_client.vpc"	// TF2MC
+ $Include "$SRCDIR\vpc_scripts\source_saxxyawards.vpc" [!$SOURCESDK]
+ $Include "$SRCDIR\utils\itemtest_lib\itemtest_lib_support.vpc" [$WORKSHOP_IMPORT_ENABLE]
+ 
+diff -ruN a/src/game/server/server_tf.vpc b/src/game/server/server_tf.vpc
+--- a/src/game/server/server_tf.vpc	2026-11-12 10:12:51.116019808 +0000
++++ b/src/game/server/server_tf.vpc	2026-11-12 10:13:03.382532938 +0000
+@@ -10,6 +10,7 @@
+ 
+ $Include "$SRCDIR\game\server\server_base.vpc"
+ $Include "$SRCDIR\game\server\server_econ_base.vpc"
++$Include "$SRCDIR\game\server\tf2mc\tf2mc_server.vpc"	// TF2MC
+ $include "$SRCDIR\game\shared\tf\tf_gcmessages_include.vpc"
+ $include "$SRCDIR\game\shared\tf\tf_proto_def_messages_include.vpc"
+ $Include "$SRCDIR\game\server\nav_mesh.vpc"
+diff -ruN a/src/game/server/tf/tf_obj_sentrygun.cpp b/src/game/server/tf/tf_obj_sentrygun.cpp
+--- a/src/game/server/tf/tf_obj_sentrygun.cpp	2026-11-12 10:12:51.097873176 +0000
++++ b/src/game/server/tf/tf_obj_sentrygun.cpp	2026-11-12 10:13:03.378796399 +0000
+@@ -25,6 +25,7 @@
+ #include "tf_weapon_knife.h"
+ #include "tf_logic_robot_destruction.h"
+ #include "tf_target_dummy.h"
++#include "tf2mc/mc_server.h"	// TF2MC
+ 
+ // memdbgon must be the last include file in a .cpp file!!!
+ #include "tier0/memdbgon.h"
+@@ -995,6 +996,10 @@
+ 			}
+ 		}
+ 
++		// TF2MC: hostile Minecraft mobs
++		if ( pTargetCurrent == NULL )
++			pTargetCurrent = MC_SentryFindMob( this, vecSentryOrigin, m_flSentryRange );
++
+ 		if ( ( pTargetCurrent == NULL ) && !bTruceActive )
+ 		{
+ 			// target objects
+diff -ruN a/src/game/server/tf/tf_player.cpp b/src/game/server/tf/tf_player.cpp
+--- a/src/game/server/tf/tf_player.cpp	2026-11-12 10:12:51.093547297 +0000
++++ b/src/game/server/tf/tf_player.cpp	2026-11-12 10:13:03.377865189 +0000
+@@ -136,6 +136,8 @@
+ #include "haptics/haptic_utils.h"
+ 
+ #include "gc_clientsystem.h"
++#include "tf2mc/mc_bridge.h"		// TF2MC
++#include "tf2mc/mc_server.h"		// TF2MC
+ 
+ // memdbgon must be the last include file in a .cpp file!!!
+ #include "tier0/memdbgon.h"
+@@ -2679,6 +2681,8 @@
+ {
+ 	BaseClass::PostThink();
+ 
++	MC_PlayerPostThink( this );	// TF2MC: Minecraft-mode digging / placing / melee
++
+ 	QAngle angles = GetLocalAngles();
+ 	angles[PITCH] = 0;
+ 	SetLocalAngles( angles );
+@@ -4235,6 +4239,13 @@
+ 		RemoveAllWeapons();
+ 		return;
+ 	}
++
++	// TF2MC: the Minecraft-mode player uses Minecraft items (bridged), not TF2 weapons
++	if ( IsPlayerClass( TF_CLASS_CIVILIAN ) )
++	{
++		RemoveAllWeapons();
++		return;
++	}
+ 	
+ 	// Give weapons.
+ 	ManageRegularWeapons( pData );
+@@ -6856,7 +6867,7 @@
+ 			}
+ 		}
+ 		 
+-		bool bCivilianOkay = false;
++		bool bCivilianOkay = MC_AllowCivilian() && ( i == TF_CLASS_CIVILIAN );	// TF2MC: Civilian = Minecraft mode
+ 
+ 		if ( !bCivilianOkay && ( i >= TF_LAST_NORMAL_CLASS ) )
+ 		{
+diff -ruN a/src/game/shared/tf/tf_flame.cpp b/src/game/shared/tf/tf_flame.cpp
+--- a/src/game/shared/tf/tf_flame.cpp	2026-11-12 10:12:51.105445175 +0000
++++ b/src/game/shared/tf/tf_flame.cpp	2026-11-12 10:13:03.382288042 +0000
+@@ -601,7 +601,7 @@
+ 		// only add enemy robots
+ 		m_Targets.AddToTail( pEnt );
+ 	}
+-	else if ( FClassnameIs( pEnt, "func_breakable" ) || FClassnameIs( pEnt, "tf_pumpkin_bomb" ) || FClassnameIs( pEnt, "tf_merasmus_trick_or_treat_prop" ) || FClassnameIs( pEnt, "tf_generic_bomb" ) )
++	else if ( FClassnameIs( pEnt, "mc_mob" ) /* TF2MC */ || FClassnameIs( pEnt, "func_breakable" ) || FClassnameIs( pEnt, "tf_pumpkin_bomb" ) || FClassnameIs( pEnt, "tf_merasmus_trick_or_treat_prop" ) || FClassnameIs( pEnt, "tf_generic_bomb" ) )
+ 	{
+ 		m_Targets.AddToTail( pEnt );
+ 	}
+@@ -638,7 +638,7 @@
+ 		// only add enemy robots
+ 		return true;
+ 	}
+-	else if ( FClassnameIs( pEntity, "func_breakable" ) || FClassnameIs( pEntity, "tf_pumpkin_bomb" ) || FClassnameIs( pEntity, "tf_merasmus_trick_or_treat_prop" ) || FClassnameIs( pEntity, "tf_generic_bomb" ) )
++	else if ( FClassnameIs( pEntity, "mc_mob" ) /* TF2MC */ || FClassnameIs( pEntity, "func_breakable" ) || FClassnameIs( pEntity, "tf_pumpkin_bomb" ) || FClassnameIs( pEntity, "tf_merasmus_trick_or_treat_prop" ) || FClassnameIs( pEntity, "tf_generic_bomb" ) )
+ 	{
+ 		return true;
+ 	}
+diff -ruN a/src/game/shared/tf/tf_gamemovement.cpp b/src/game/shared/tf/tf_gamemovement.cpp
+--- a/src/game/shared/tf/tf_gamemovement.cpp	2026-11-12 10:12:51.089207905 +0000
++++ b/src/game/shared/tf/tf_gamemovement.cpp	2026-11-12 10:13:03.370579635 +0000
+@@ -22,6 +22,7 @@
+ #include "tf_weapon_buff_item.h"
+ #include "halloween/tf_weapon_spellbook.h"
+ #include "tf_logic_player_destruction.h"
++#include "tf2mc/mc_bridge.h"	// TF2MC
+ 
+ #ifdef CLIENT_DLL
+ 	#include "c_tf_player.h"
+@@ -1314,6 +1315,15 @@
+ 	
+ 	float flMul = ( 289.0f * flJumpMod ) * flGroundFactor;
+ 
++	// TF2MC: Minecraft-mode players jump like Steve; TF classes optionally get enough lift for one block
++	if ( MC_IsActive() )
++	{
++		if ( m_pTFPlayer->IsPlayerClass( TF_CLASS_CIVILIAN ) )
++			flMul = MC_SteveJumpSpeed() * flGroundFactor;
++		else
++			flMul = MC_ClassJumpSpeed( 289.0f * flJumpMod ) * flGroundFactor;
++	}
++
+ 	// Save the current z velocity.
+ 	float flStartZ = mv->m_vecVelocity[2];
+ 
+@@ -1464,7 +1474,7 @@
+ 	int wt = CONTENTS_EMPTY;
+ 
+ 	// Check to see if our feet are underwater.
+-	int nContents = GetPointContentsCached( vecPoint, 0 );	
++	int nContents = MC_PointContents( vecPoint, GetPointContentsCached( vecPoint, 0 ) ) /* TF2MC: Minecraft water */;	
+ 	if ( nContents & MASK_WATER )
+ 	{
+ 		// Clear our jump flag, because we have landed in water.
+@@ -1478,7 +1488,7 @@
+ 
+ 		// Now check eyes
+ 		vecPoint.z = mv->GetAbsOrigin().z + player->GetViewOffset()[2];
+-		nContents = GetPointContentsCached( vecPoint, 1 );
++		nContents = MC_PointContents( vecPoint, GetPointContentsCached( vecPoint, 1 ) ) /* TF2MC: Minecraft water */;
+ 		if ( nContents & MASK_WATER )
+ 		{
+ 			// In over our eyes
+@@ -1490,7 +1500,7 @@
+ 		{
+ 			// Now check a point that is at the player hull midpoint (waist) and see if that is underwater.
+ 			vecPoint.z = flWaistZ;
+-			nContents = GetPointContentsCached( vecPoint, 2 );
++			nContents = MC_PointContents( vecPoint, GetPointContentsCached( vecPoint, 2 ) ) /* TF2MC: Minecraft water */;
+ 			if ( nContents & MASK_WATER )
+ 			{
+ 				// Set the water level at our waist.
+@@ -2621,6 +2631,8 @@
+ //-----------------------------------------------------------------------------
+ void CTFGameMovement::FullWalkMove()
+ {
++	MC_ClimbMove( player, mv, GetPlayerMins(), GetPlayerMaxs() );	// TF2MC: ladders, vines, scaffolding
++
+ 	if ( !InWater() ) 
+ 	{
+ 		if ( m_pTFPlayer->m_Shared.InCond( TF_COND_PARACHUTE_ACTIVE ) && mv->m_vecVelocity[2] < 0 )
+diff -ruN a/src/game/shared/tf/tf_gamerules.cpp b/src/game/shared/tf/tf_gamerules.cpp
+--- a/src/game/shared/tf/tf_gamerules.cpp	2026-11-12 10:12:51.101155414 +0000
++++ b/src/game/shared/tf/tf_gamerules.cpp	2026-11-12 10:13:03.381774220 +0000
+@@ -76,6 +76,9 @@
+ 	#include "econ_gcmessages.h"
+ 	#include "vgui/ILocalize.h"
+ 	#include "tier3/tier3.h"
++#ifdef GAME_DLL
++#include "tf2mc/mc_server.h"	// TF2MC
++#endif
+ 	#include "tf_ammo_pack.h"
+ 	#include "tf_gcmessages.h"
+ 	#include "vote_controller.h"
+@@ -5666,6 +5669,8 @@
+ //-----------------------------------------------------------------------------
+ void CTFGameRules::RadiusDamage( CTFRadiusDamageInfo &info )
+ {
++	MC_OnRadiusDamage( info.vecSrc, info.flRadius, info.dmgInfo ? info.dmgInfo->GetAttacker() : NULL );	// TF2MC
++
+ 	float flRadSqr = (info.flRadius * info.flRadius);
+ 
+ 	int iDamageEnemies = 0;

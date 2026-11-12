@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "tf2bridge",
+  "version": "${version}",
+  "name": "TF2 Bridge",
+  "description": "Runs a headless Minecraft world for the TF2 (Source SDK 2013) TF2MC mod: streams blocks and entities, mirrors TF2 players as Minecraft players and applies their actions.",
+  "authors": ["TF2MC"],
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["dev.tf2mc.bridge.TF2Bridge"]
+  },
+  "mixins": ["tf2bridge.mixins.json"],
+  "depends": {
+    "minecraft": "26.3.x",
+    "fabricloader": ">=0.19.5",
+    "java": ">=25"
+  }
+}

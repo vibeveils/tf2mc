@@ -1,0 +1,8 @@
+// Block texture atlas built from YOUR Minecraft client jar by tools/mc_assets.py (not shipped).
+"UnlitGeneric"
+{
+	"$basetexture"		"mc/atlas"
+	"$vertexcolor"		"1"
+	"$alphatest"		"1"
+	"$alphatestreference"	"0.5"
+}
