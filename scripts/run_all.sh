@@ -6,7 +6,7 @@ SDK_DIR=${SDK_DIR:-$HOME/source-sdk-2013}
 PORT=${MC_BRIDGE_PORT:-25599}
 HERE=$(cd "$(dirname "$0")" && pwd)
 
-MC_DIR="$MC_DIR" "$HERE/start_minecraft_headless.sh" > "$MC_DIR/tf2bridge-console.log" 2>&1 &
+MC_DIR="$MC_DIR" bash "$HERE/start_minecraft_headless.sh" > "$MC_DIR/tf2bridge-console.log" 2>&1 &
 MC_PID=$!
 echo "Minecraft server pid $MC_PID (log: $MC_DIR/tf2bridge-console.log); waiting for bridge on :$PORT ..."
 i=0

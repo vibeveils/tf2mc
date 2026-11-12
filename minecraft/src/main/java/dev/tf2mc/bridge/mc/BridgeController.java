@@ -18,7 +18,8 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.inventory.AbstractContainerMenu;
-import net.minecraft.world.inventory.ClickType;
+import net.minecraft.world.inventory.ContainerInput;
+import dev.tf2mc.bridge.mixin.EntityAccessor;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.SwingAnimation;
@@ -357,10 +358,19 @@ public final class BridgeController {
                 if (p == null) return;
                 AbstractContainerMenu menu = p.containerMenu;
                 if (menu.containerId != containerId) return;
-                ClickType[] types = ClickType.values();
-                if (clickType >= types.length) return;
+                ContainerInput input = switch (clickType) {   // protocol values = Minecraft's order
+                    case Packets.CLICK_PICKUP -> ContainerInput.PICKUP;
+                    case Packets.CLICK_QUICK_MOVE -> ContainerInput.QUICK_MOVE;
+                    case Packets.CLICK_SWAP -> ContainerInput.SWAP;
+                    case Packets.CLICK_CLONE -> ContainerInput.CLONE;
+                    case Packets.CLICK_THROW -> ContainerInput.THROW;
+                    case Packets.CLICK_QUICK_CRAFT -> ContainerInput.QUICK_CRAFT;
+                    case Packets.CLICK_PICKUP_ALL -> ContainerInput.PICKUP_ALL;
+                    default -> null;
+                };
+                if (input == null) return;
                 if (slotIndex != -999 && (slotIndex < 0 || slotIndex >= menu.slots.size())) return;
-                menu.clicked(slotIndex, button, types[clickType], p);
+                menu.clicked(slotIndex, button, input, p);
                 menu.broadcastChanges();
                 syncInventory(p, false);
             }
@@ -394,9 +404,10 @@ public final class BridgeController {
         }
         DamageSource src = kind == Packets.DMG_EXPLOSION ? p.damageSources().explosion(p, p) : p.damageSources().playerAttack(p);
         if (target instanceof LivingEntity le) {
-            le.invulnerableTime = 0;   // TF2 weapons have their own fire rates; skip vanilla i-frames
+            ((EntityAccessor) (Object) le).tf2bridge$setInvulnerableTime(0);   // TF2 weapons have their own fire rates; skip vanilla i-frames
             boolean hurt = le.hurtServer(level, src, damage);
-            if (hurt && strength > 0) le.knockback(strength, -kx, -kz);
+            // Knockback in the direction of the TF2 hit (push() also flags the velocity for clients)
+            if (hurt && strength > 0) le.push(new Vec3(kx * strength, Math.min(0.4, strength * 0.5), kz * strength));
             if (kind == Packets.DMG_FIRE) le.igniteForSeconds(4);
         } else {
             target.hurtServer(level, src, damage);

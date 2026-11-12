@@ -14,7 +14,7 @@ import org.jspecify.annotations.Nullable;
 public final class FakeConnection extends Connection {
     public FakeConnection() {
         super(PacketFlow.SERVERBOUND);
-        ((ConnectionAccessor) this).tf2bridge$setChannel(new EmbeddedChannel());
+        ((ConnectionAccessor) (Object) this).tf2bridge$setChannel(new EmbeddedChannel());
     }
 
     @Override public void setReadOnly() {}

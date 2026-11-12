@@ -49,6 +49,7 @@ public final class Packets {
     public static final int STATE_COLLIDES = 1, STATE_OPAQUE_CUBE = 2, STATE_LIQUID = 4, STATE_CLIMBABLE = 8, STATE_WATERLOGGED = 16, STATE_LAVA = 32;
 
     public static final int ROLE_OBSERVER = 0, ROLE_AUTHORITY = 1;
+    public static final int CLICK_PICKUP = 0, CLICK_QUICK_MOVE = 1, CLICK_SWAP = 2, CLICK_CLONE = 3, CLICK_THROW = 4, CLICK_QUICK_CRAFT = 5, CLICK_PICKUP_ALL = 6;
     public static final int MODE_TF_CLASS = 0, MODE_STEVE = 1;
     public static final int DIG_CONTINUE = 0, DIG_ABORT = 1;
     public static final int ATTACK_TF_DAMAGE = 0, ATTACK_MC_MELEE = 1;
