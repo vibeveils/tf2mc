@@ -122,7 +122,10 @@ public:
 	CMCMob *FindMob( int id )
 	{
 		int i = m_mobs.Find( id );
-		return i == m_mobs.InvalidIndex() ? NULL : static_cast<CMCMob *>( m_mobs[i].Get() );
+		if ( i == m_mobs.InvalidIndex() ) return NULL;
+		CMCMob *mob = static_cast<CMCMob *>( m_mobs[i].Get() );
+		if ( !mob ) m_mobs.RemoveAt( i );   // proxy was deleted behind our back
+		return mob;
 	}
 
 	CBaseEntity *FindSentryTarget( CBaseEntity *pSentry, const Vector &eye, float range );
@@ -520,6 +523,19 @@ void CMCServerSystem::HandlePacket( const mc::Packet &pk )
 void CMCServerSystem::FrameUpdatePostEntityThink()
 {
 	CMCBridge &b = MCBridge();
+
+	// Something (a round restart without the cleanup hook, a plugin) removed the world entity: recreate it.
+	if ( !m_hWorld.Get() )
+	{
+		CBaseEntity *pEnt = CreateEntityByName( "mc_world" );
+		if ( pEnt )
+		{
+			DispatchSpawn( pEnt );
+			m_hWorld = static_cast<CMCWorld *>( pEnt );
+			if ( b.IsReady() ) ApplyCoordsToWorldEntity();
+			DevMsg( "TF2MC: recreated mc_world\n" );
+		}
+	}
 	if ( mc_autoconnect.GetBool() && b.Port() && !b.IsConnected() && gpGlobals->curtime > m_flNextRetry && m_hWorld )
 	{
 		m_hWorld->SetReady( false );

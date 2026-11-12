@@ -1,6 +1,6 @@
 diff -ruN a/src/game/client/client_tf.vpc b/src/game/client/client_tf.vpc
---- a/src/game/client/client_tf.vpc	2026-11-12 10:12:51.110471026 +0000
-+++ b/src/game/client/client_tf.vpc	2026-11-12 10:13:03.382407655 +0000
+--- a/src/game/client/client_tf.vpc	2026-11-05 04:21:23.000000000 +0000
++++ b/src/game/client/client_tf.vpc	2026-11-12 21:23:28.312401633 +0000
 @@ -15,6 +15,7 @@
  $include "$SRCDIR\game\shared\tf\tf_gcmessages_include.vpc"
  $include "$SRCDIR\game\shared\tf\tf_proto_def_messages_include.vpc"
@@ -10,8 +10,8 @@ diff -ruN a/src/game/client/client_tf.vpc b/src/game/client/client_tf.vpc
  $Include "$SRCDIR\utils\itemtest_lib\itemtest_lib_support.vpc" [$WORKSHOP_IMPORT_ENABLE]
  
 diff -ruN a/src/game/server/server_tf.vpc b/src/game/server/server_tf.vpc
---- a/src/game/server/server_tf.vpc	2026-11-12 10:12:51.116019808 +0000
-+++ b/src/game/server/server_tf.vpc	2026-11-12 10:13:03.382532938 +0000
+--- a/src/game/server/server_tf.vpc	2026-11-05 04:21:23.000000000 +0000
++++ b/src/game/server/server_tf.vpc	2026-11-12 21:23:28.313033849 +0000
 @@ -10,6 +10,7 @@
  
  $Include "$SRCDIR\game\server\server_base.vpc"
@@ -21,8 +21,8 @@ diff -ruN a/src/game/server/server_tf.vpc b/src/game/server/server_tf.vpc
  $include "$SRCDIR\game\shared\tf\tf_proto_def_messages_include.vpc"
  $Include "$SRCDIR\game\server\nav_mesh.vpc"
 diff -ruN a/src/game/server/tf/tf_obj_sentrygun.cpp b/src/game/server/tf/tf_obj_sentrygun.cpp
---- a/src/game/server/tf/tf_obj_sentrygun.cpp	2026-11-12 10:12:51.097873176 +0000
-+++ b/src/game/server/tf/tf_obj_sentrygun.cpp	2026-11-12 10:13:03.378796399 +0000
+--- a/src/game/server/tf/tf_obj_sentrygun.cpp	2026-11-05 04:21:23.000000000 +0000
++++ b/src/game/server/tf/tf_obj_sentrygun.cpp	2026-11-12 21:23:28.302510015 +0000
 @@ -25,6 +25,7 @@
  #include "tf_weapon_knife.h"
  #include "tf_logic_robot_destruction.h"
@@ -43,8 +43,8 @@ diff -ruN a/src/game/server/tf/tf_obj_sentrygun.cpp b/src/game/server/tf/tf_obj_
  		{
  			// target objects
 diff -ruN a/src/game/server/tf/tf_player.cpp b/src/game/server/tf/tf_player.cpp
---- a/src/game/server/tf/tf_player.cpp	2026-11-12 10:12:51.093547297 +0000
-+++ b/src/game/server/tf/tf_player.cpp	2026-11-12 10:13:03.377865189 +0000
+--- a/src/game/server/tf/tf_player.cpp	2026-11-05 04:21:23.000000000 +0000
++++ b/src/game/server/tf/tf_player.cpp	2026-11-12 21:23:28.300683574 +0000
 @@ -136,6 +136,8 @@
  #include "haptics/haptic_utils.h"
  
@@ -87,8 +87,8 @@ diff -ruN a/src/game/server/tf/tf_player.cpp b/src/game/server/tf/tf_player.cpp
  		if ( !bCivilianOkay && ( i >= TF_LAST_NORMAL_CLASS ) )
  		{
 diff -ruN a/src/game/shared/tf/tf_flame.cpp b/src/game/shared/tf/tf_flame.cpp
---- a/src/game/shared/tf/tf_flame.cpp	2026-11-12 10:12:51.105445175 +0000
-+++ b/src/game/shared/tf/tf_flame.cpp	2026-11-12 10:13:03.382288042 +0000
+--- a/src/game/shared/tf/tf_flame.cpp	2026-11-05 04:21:23.000000000 +0000
++++ b/src/game/shared/tf/tf_flame.cpp	2026-11-12 21:23:28.311780407 +0000
 @@ -601,7 +601,7 @@
  		// only add enemy robots
  		m_Targets.AddToTail( pEnt );
@@ -108,8 +108,8 @@ diff -ruN a/src/game/shared/tf/tf_flame.cpp b/src/game/shared/tf/tf_flame.cpp
  		return true;
  	}
 diff -ruN a/src/game/shared/tf/tf_gamemovement.cpp b/src/game/shared/tf/tf_gamemovement.cpp
---- a/src/game/shared/tf/tf_gamemovement.cpp	2026-11-12 10:12:51.089207905 +0000
-+++ b/src/game/shared/tf/tf_gamemovement.cpp	2026-11-12 10:13:03.370579635 +0000
+--- a/src/game/shared/tf/tf_gamemovement.cpp	2026-11-05 04:21:23.000000000 +0000
++++ b/src/game/shared/tf/tf_gamemovement.cpp	2026-11-12 21:23:28.289640570 +0000
 @@ -22,6 +22,7 @@
  #include "tf_weapon_buff_item.h"
  #include "halloween/tf_weapon_spellbook.h"
@@ -171,8 +171,8 @@ diff -ruN a/src/game/shared/tf/tf_gamemovement.cpp b/src/game/shared/tf/tf_gamem
  	{
  		if ( m_pTFPlayer->m_Shared.InCond( TF_COND_PARACHUTE_ACTIVE ) && mv->m_vecVelocity[2] < 0 )
 diff -ruN a/src/game/shared/tf/tf_gamerules.cpp b/src/game/shared/tf/tf_gamerules.cpp
---- a/src/game/shared/tf/tf_gamerules.cpp	2026-11-12 10:12:51.101155414 +0000
-+++ b/src/game/shared/tf/tf_gamerules.cpp	2026-11-12 10:13:03.381774220 +0000
+--- a/src/game/shared/tf/tf_gamerules.cpp	2026-11-05 04:21:23.000000000 +0000
++++ b/src/game/shared/tf/tf_gamerules.cpp	2026-11-12 21:23:28.310347651 +0000
 @@ -76,6 +76,9 @@
  	#include "econ_gcmessages.h"
  	#include "vgui/ILocalize.h"
@@ -183,7 +183,17 @@ diff -ruN a/src/game/shared/tf/tf_gamerules.cpp b/src/game/shared/tf/tf_gamerule
  	#include "tf_ammo_pack.h"
  	#include "tf_gcmessages.h"
  	#include "vote_controller.h"
-@@ -5666,6 +5669,8 @@
+@@ -4657,6 +4660,9 @@
+ //-----------------------------------------------------------------------------
+ bool CTFGameRules::RoundCleanupShouldIgnore( CBaseEntity *pEnt )
+ {
++	if ( FClassnameIs( pEnt, "mc_world" ) || FClassnameIs( pEnt, "mc_mob" ) )	// TF2MC: keep the Minecraft world across round restarts
++		return true;
++
+ 	if ( FindInList( s_PreserveEnts, pEnt->GetClassname() ) )
+ 		return true;
+ 
+@@ -5666,6 +5672,8 @@
  //-----------------------------------------------------------------------------
  void CTFGameRules::RadiusDamage( CTFRadiusDamageInfo &info )
  {

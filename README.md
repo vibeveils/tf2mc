@@ -128,6 +128,50 @@ arrival point, and buildings are cleared.
 port must be reachable from players: set `mc_public_host`, plus `bind-host=0.0.0.0` and a `secret` in
 `tf2bridge.properties`.
 
+## Run on Windows
+**Quick path with CI builds:** run `scripts\install_sourcemod.bat <downloaded tf2-mod-windows folder>`.
+It copies the mod into `Steam\steamapps\sourcemods\tf2mc` and compiles the map with your Source SDK
+Base 2013 Multiplayer tools. Restart Steam, set the launch options to
+`-insecure +exec tf2mc_server.cfg +map mc_world`, start the Minecraft server, and play from the library.
+
+**Full setup:**
+1. **Steam:** install **Team Fortress 2** and **Source SDK Base 2013 Multiplayer** (in the Tools list).
+   The mod mounts content from both.
+2. **Java 25** (e.g. Temurin) and **Python 3.13** with `pip install pillow`.
+3. **Minecraft server** (headless): get the Fabric installer `.jar` from fabricmc.net, then:
+   ```bat
+   java -jar fabric-installer.jar server -mcversion 26.3 -loader 0.19.5 -downloadMinecraft -dir %USERPROFILE%\mc-tf2
+   echo eula=true > %USERPROFILE%\mc-tf2\eula.txt
+   ```
+   Copy `tf2bridge-*.jar` into `%USERPROFILE%\mc-tf2\mods\`. It comes from CI or `gradle build` in `minecraft\`.
+4. **TF2 mod**, either:
+   - **Download:** take the `game` folder from the CI release zip. It holds `mod_tf_win64.exe`, `bin\` and `mod_tf\`.
+   - **Build it yourself:**
+     ```bat
+     git clone https://github.com/ValveSoftware/source-sdk-2013 C:\src\source-sdk-2013
+     scripts\install_into_sdk.bat C:\src\source-sdk-2013
+     ```
+     Then run `src\createallprojects.bat` and build `everything.sln` (Release) in Visual Studio 2022.
+5. **Textures:**
+   ```bat
+   py tools\mc_assets.py "%APPDATA%\.minecraft\versions\26.3\26.3.jar" C:\src\source-sdk-2013\game\mod_tf
+   ```
+6. **Map** (once):
+   ```bat
+   scripts\compile_map.bat "<Steam>\steamapps\common\Source SDK Base 2013 Multiplayer" C:\src\source-sdk-2013\game\mod_tf
+   ```
+   Or open `mod_tf\maps\src\mc_world.vmf` in Hammer and run *Run Map*.
+7. **Play:**
+   ```bat
+   set GAME_DIR=C:\src\source-sdk-2013\game
+   scripts\run_all.bat
+   ```
+   This starts Minecraft headless in its own window, waits for the bridge, then launches
+   `mod_tf_win64.exe +exec tf2mc_server.cfg +map mc_world`.
+   - Alternatively, in Visual Studio set **Client (Mod TF)** as the startup project, add
+     `+exec tf2mc_server.cfg +map mc_world` to the launch options, and press **Local Windows Debugger**.
+   - In game: join a team and pick a class, or type `mc_steve` in the console to play as a Minecraft player.
+
 ## Tests
 ```sh
 tests/run_tests.sh   # 196 core unit checks: protocol, coords + origin shifts, states/shapes, light,

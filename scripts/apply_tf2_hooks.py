@@ -79,6 +79,10 @@ def main(sdk):
     r.append(edit(gr, "void CTFGameRules::RadiusDamage( CTFRadiusDamageInfo &info )\n{\n",
                   "\tMC_OnRadiusDamage( info.vecSrc, info.flRadius, info.dmgInfo ? info.dmgInfo->GetAttacker() : NULL );\t// TF2MC\n\n"))
 
+    # --- round restarts ("waiting for players", every new round) must not delete the Minecraft world/mobs
+    r.append(edit(gr, "bool CTFGameRules::RoundCleanupShouldIgnore( CBaseEntity *pEnt )\n{\n",
+                  "\tif ( FClassnameIs( pEnt, \"mc_world\" ) || FClassnameIs( pEnt, \"mc_mob\" ) )\t// TF2MC: keep the Minecraft world across round restarts\n\t\treturn true;\n\n"))
+
     # --- flamethrowers burn Minecraft mobs
     for var in ("pEnt", "pEntity"):
         old = f'FClassnameIs( {var}, "func_breakable" )'

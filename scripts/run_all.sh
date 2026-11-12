@@ -15,5 +15,6 @@ while ! (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; do
   sleep 1
 done
 echo "bridge is up - launching TF2"
-cd "$SDK_DIR/game" && ./mod_tf -novid -insecure +exec tf2mc_server.cfg +map mc_world
+cd "$SDK_DIR/game" && LAUNCHER=./mod_tf_linux64; [ -x "$LAUNCHER" ] || LAUNCHER=./mod_tf
+"$LAUNCHER" -novid -insecure +exec tf2mc_server.cfg +map mc_world
 kill $MC_PID 2>/dev/null

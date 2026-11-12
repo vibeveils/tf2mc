@@ -452,7 +452,8 @@ void C_MCWorld::ClientThink()
 	const char *host = m_szBridgeHost.Get();
 	if ( !m_bReady || !host[0] ) return;
 	CMCBridge &b = MCBridge();
-	bool sameTarget = !Q_strcmp( m_szConnectedHost, host ) && m_iConnectedPort == m_iBridgePort;
+	bool sameTarget = ( !Q_strcmp( m_szConnectedHost, host ) && m_iConnectedPort == m_iBridgePort ) ||
+					  ( b.IsConnected() && !Q_strcmp( b.Host(), host ) && b.Port() == m_iBridgePort );
 	if ( ( !sameTarget || ( !b.IsConnected() && gpGlobals->curtime > m_flNextConnectTry ) ) )
 	{
 		Q_strncpy( m_szConnectedHost, host, sizeof( m_szConnectedHost ) );
@@ -465,11 +466,9 @@ void C_MCWorld::ClientThink()
 
 void C_MCWorld::UpdateOnRemove()
 {
-	MCPhysics().Clear();
-	MCBridge().Disconnect();
-	g_Meshes.Clear();
+	// Keep the bridge connection (and the mirrored world): if this entity is recreated, the new one
+	// picks the same connection up. Level shutdown (CMCClientSystem) disconnects.
 	if ( s_pTranslucent ) { s_pTranslucent->Release(); s_pTranslucent = NULL; }
-	m_szConnectedHost[0] = 0;
 	BaseClass::UpdateOnRemove();
 }
 
