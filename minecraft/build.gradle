@@ -15,9 +15,10 @@ dependencies {
     // No Fabric API dependency: all hooks are mixins.
 }
 
-sourceSets {
-    // Protocol-only test harness (no Minecraft classes); run with ./gradlew fakeWorld
-    test { java { srcDir 'src/test/java' } }
+// src/test/java holds FakeWorldServer, a protocol-only stand-in for Minecraft (run with
+// `gradle fakeWorld`), not unit tests. Gradle 9 fails a test task that finds no tests, so allow it.
+tasks.named('test', Test) {
+    failOnNoDiscoveredTests = false
 }
 
 tasks.register('fakeWorld', JavaExec) {
