@@ -456,8 +456,14 @@ static void TestV2()
 		BuildSectionMesh( copy, c, 0, 0, 0, o2, fromCopy );
 		CHECK( live.QuadCount() > 0 );
 		CHECK( live.opaque.size() == fromCopy.opaque.size() && live.translucent.size() == fromCopy.translucent.size() );
-		bool same = live.opaque.size() == fromCopy.opaque.size() &&
-					( live.opaque.empty() || memcmp( live.opaque.data(), fromCopy.opaque.data(), live.opaque.size() * sizeof( MeshVertex ) ) == 0 );
+		// field by field: MeshVertex has padding bytes, so memcmp would compare garbage
+		bool same = live.opaque.size() == fromCopy.opaque.size();
+		for ( size_t i = 0; same && i < live.opaque.size(); ++i )
+		{
+			const MeshVertex &a = live.opaque[i], &b = fromCopy.opaque[i];
+			same = !memcmp( a.pos, b.pos, sizeof( a.pos ) ) && !memcmp( a.uv, b.uv, sizeof( a.uv ) ) &&
+				   !memcmp( a.rgba, b.rgba, sizeof( a.rgba ) ) && a.sky == b.sky && a.blk == b.blk;
+		}
 		CHECK( same );
 		CHECK( &static_cast<const VoxelWorld &>( copy ).Registry() == &snap );
 		uint32_t gen = w.Registry().Generation();
