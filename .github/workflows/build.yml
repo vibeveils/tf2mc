@@ -49,6 +49,7 @@ jobs:
       - name: Core unit tests (+ asset tool on a fake jar)
         run: |
           pip install pillow
+          sudo apt-get install -y --no-install-recommends ffmpeg >/dev/null || echo "ffmpeg unavailable: sound conversion test will be skipped"
           bash tests/run_tests.sh
 
       - name: End-to-end (Java BridgeServer + fake world <-> C++ client)
