@@ -46,8 +46,10 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Core unit tests
-        run: bash tests/run_tests.sh
+      - name: Core unit tests (+ asset tool on a fake jar)
+        run: |
+          pip install pillow
+          bash tests/run_tests.sh
 
       - name: End-to-end (Java BridgeServer + fake world <-> C++ client)
         run: bash tests/run_e2e.sh
@@ -136,14 +138,16 @@ jobs:
       - name: Collect mod
         run: |
           sudo chown -R "$(id -u):$(id -g)" sdk
-          mkdir -p out
-          cp -R sdk/game/mod_tf out/mod_tf
-          ls -R out/mod_tf/bin | head -50
+          mkdir -p out/game
+          cp -R sdk/game/mod_tf out/game/mod_tf
+          find sdk/game -maxdepth 1 -type f -name 'mod_tf*' -exec cp {} out/game/ \;   # launcher (mod_tf_linux64)
+          cp -R sdk/game/bin out/game/bin                                              # Steam libs the launcher needs
+          ls out/game; ls -R out/game/mod_tf/bin | head -50
 
       - uses: actions/upload-artifact@v4
         with:
           name: tf2-mod-linux
-          path: out/mod_tf
+          path: out/game
 
   # ---------------------------------------------------------------------------
   tf2-windows:
@@ -185,14 +189,16 @@ jobs:
       - name: Collect mod
         shell: bash
         run: |
-          mkdir -p out
-          cp -R sdk/game/mod_tf out/mod_tf
-          find out/mod_tf/bin -name "*.dll" | head -20
+          mkdir -p out/game
+          cp -R sdk/game/mod_tf out/game/mod_tf
+          cp sdk/game/mod_tf_win64.exe out/game/   # the mod's launcher
+          cp -R sdk/game/bin out/game/bin          # steam_api64.dll etc. the launcher needs
+          ls out/game; find out/game/mod_tf/bin -name "*.dll" | head -20
 
       - uses: actions/upload-artifact@v4
         with:
           name: tf2-mod-windows
-          path: out/mod_tf
+          path: out/game
 
   # ---------------------------------------------------------------------------
   package:
@@ -210,13 +216,13 @@ jobs:
         run: |
           set -e
           R=release/tf2mc
-          mkdir -p $R/mod_tf $R/minecraft-mods $R/tools $R/scripts
-          # mod content + binaries for both platforms (content is identical, binaries merge)
-          cp -R artifacts/tf2-mod-linux/. $R/mod_tf/
-          cp -R artifacts/tf2-mod-windows/. $R/mod_tf/
+          mkdir -p $R/game $R/minecraft-mods $R/tools $R/scripts
+          # launchers + mod content + binaries for both platforms (content identical, binaries merge)
+          cp -R artifacts/tf2-mod-linux/. $R/game/
+          cp -R artifacts/tf2-mod-windows/. $R/game/
           cp artifacts/minecraft-mod/*.jar $R/minecraft-mods/
           cp tools/mc_assets.py $R/tools/
-          cp scripts/start_minecraft_headless.* scripts/run_all.sh $R/scripts/
+          cp scripts/start_minecraft_headless.* scripts/run_all.sh scripts/run_all.bat scripts/compile_map.bat scripts/install_sourcemod.bat scripts/find_java.bat $R/scripts/
           cp README.md docs/PROTOCOL.md $R/
           (cd release && zip -qr ../tf2mc-${GITHUB_REF_NAME//\//-}.zip tf2mc)
           ls -la *.zip
