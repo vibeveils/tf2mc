@@ -1,6 +1,8 @@
 //========= TF2MC =========//
 #include "cbase.h"
 #include "mc_bridge.h"
+#include "tf2mc/mc_world_entity.h"
+#include "gamerules.h"
 #include "filesystem.h"
 #include "tier1/utlbuffer.h"
 #include "vphysics_interface.h"
@@ -18,6 +20,7 @@
 #include "tier0/memdbgon.h"
 
 ConVar mc_jump_assist( "mc_jump_assist", "1", FCVAR_REPLICATED | FCVAR_NOTIFY, "Let TF2 classes jump one Minecraft block without crouch-jumping" );
+static ConVar mc_pump_ms( "mc_pump_ms", "3", FCVAR_NONE, "Milliseconds per frame spent decoding Minecraft packets (the rest waits for the next frame)" );
 ConVar mc_allow_steve( "mc_allow_steve", "1", FCVAR_REPLICATED | FCVAR_NOTIFY, "Allow the Minecraft-mode player (Civilian slot, 'mc_steve')" );
 #ifdef CLIENT_DLL
 static ConVar mc_debug( "cl_mc_debug", "0", FCVAR_NONE, "Print client bridge traffic statistics" );
@@ -98,6 +101,89 @@ void CMCBridge::LoadBlockDefinitions()
 	{
 		Msg( "TF2MC: scripts/mc_blocks.txt not found - using flat colours (run tools/mc_assets.py to build textures)\n" );
 	}
+	CUtlBuffer mbuf( 0, 0, CUtlBuffer::TEXT_BUFFER );
+	if ( g_pFullFileSystem->ReadFile( "scripts/mc_models.txt", "MOD", mbuf ) )
+	{
+		std::string text( (const char *)mbuf.Base(), mbuf.TellPut() );
+		int n = m_world.Registry().LoadModels( text );
+		DevMsg( "TF2MC: loaded %d baked block models\n", n );
+	}
+	else if ( m_world.Registry().HasAtlas() )
+	{
+		Msg( "TF2MC: scripts/mc_models.txt not found - blocks use simple shapes (re-run tools/mc_assets.py for real Minecraft models)\n" );
+	}
+	CUtlBuffer sbuf( 0, 0, CUtlBuffer::TEXT_BUFFER );
+	if ( g_pFullFileSystem->ReadFile( "scripts/mc_sounds.txt", "MOD", sbuf ) )
+	{
+		LoadSounds( std::string( (const char *)sbuf.Base(), sbuf.TellPut() ) );
+		DevMsg( "TF2MC: loaded %d Minecraft sound events\n", (int)m_sounds.size() );
+	}
+}
+
+void CMCBridge::LoadSounds( const std::string &text )
+{
+	m_sounds.clear();
+	std::vector<SoundFile> *cur = NULL;
+	size_t start = 0;
+	while ( start < text.size() )
+	{
+		size_t end = text.find( '\n', start );
+		if ( end == std::string::npos ) end = text.size();
+		std::string line = text.substr( start, end - start );
+		start = end + 1;
+		if ( !line.empty() && line[line.size() - 1] == '\r' ) line.resize( line.size() - 1 );
+		if ( line.size() < 3 || line[0] == '#' ) continue;
+		if ( line[0] == 'e' && line[1] == ' ' ) { cur = &m_sounds[ line.substr( 2 ) ]; continue; }
+		if ( line[0] == 'f' && line[1] == ' ' && cur )
+		{
+			char path[256];
+			SoundFile f = { "", 1.f, 1.f, 1 };
+			if ( sscanf( line.c_str() + 2, "%255s %f %f %d", path, &f.volume, &f.pitch, &f.weight ) >= 1 )
+			{
+				f.path = path;
+				f.weight = MAX( 1, f.weight );
+				cur->push_back( f );
+			}
+		}
+	}
+}
+
+static ConVar mc_sound_volume( "mc_sound_volume", "1", FCVAR_ARCHIVE, "Volume of Minecraft sounds (mobs, blocks, footsteps)" );
+
+bool CMCBridge::PlaySound( const char *event, const mc::Vec3d &mcPos, float volume, float pitch )
+{
+#ifdef CLIENT_DLL
+	auto it = m_sounds.find( event );
+	if ( it == m_sounds.end() || it->second.empty() ) return false;
+	const std::vector<SoundFile> &files = it->second;
+	int total = 0;
+	for ( size_t i = 0; i < files.size(); ++i ) total += files[i].weight;
+	int pick = RandomInt( 0, MAX( 0, total - 1 ) );
+	const SoundFile *f = &files[0];
+	for ( size_t i = 0; i < files.size(); ++i ) { pick -= files[i].weight; if ( pick < 0 ) { f = &files[i]; break; } }
+
+	// Minecraft: audible up to 16 blocks x max(1, volume), linear falloff
+	const float scale = (float)m_coords.scale;
+	const float range = 16.f * MAX( 1.f, volume ) * scale;
+	Vector pos = MC_V( m_coords.ToSource( mcPos ) );
+	C_BasePlayer *pLocal = C_BasePlayer::GetLocalPlayer();
+	if ( pLocal && ( pLocal->EyePosition() - pos ).LengthSqr() > range * range ) return true;
+
+	if ( m_precached.find( f->path ) == m_precached.end() )
+	{
+		enginesound->PrecacheSound( f->path.c_str(), true, false );
+		m_precached.insert( f->path );
+	}
+	float vol = clamp( MIN( volume, 1.f ) * f->volume * mc_sound_volume.GetFloat(), 0.f, 1.f );
+	int ipitch = clamp( (int)( 100.f * pitch * f->pitch + 0.5f ), 1, 255 );
+	soundlevel_t lvl = range <= 600.f ? SNDLVL_65dB : range <= 1200.f ? SNDLVL_75dB : range <= 2400.f ? SNDLVL_85dB : SNDLVL_95dB;
+	CLocalPlayerFilter filter;
+	enginesound->EmitSound( filter, SOUND_FROM_WORLD, CHAN_AUTO, f->path.c_str(), vol, lvl, 0, ipitch, 0, &pos );
+	return true;
+#else
+	(void)event; (void)mcPos; (void)volume; (void)pitch;
+	return HasSound( event );
+#endif
 }
 
 void CMCBridge::Connect( const char *host, int port, uint8 role, const char *name )
@@ -118,6 +204,7 @@ void CMCBridge::Connect( const char *host, int port, uint8 role, const char *nam
 void CMCBridge::Disconnect()
 {
 	m_conn.Disconnect();
+	m_backlog.clear();
 	m_bHelloAck = false;
 	m_digStage = -1;
 	m_hotbar.valid = false;
@@ -152,11 +239,21 @@ void CMCBridge::Pump( std::vector<mc::Packet> &other )
 		if ( state == mc::Connection::FAILED ) m_bHelloAck = false;
 	}
 
-	std::vector<mc::Packet> packets;
-	m_conn.Poll( packets );
-	for ( size_t i = 0; i < packets.size(); ++i )
+	// Decode under a time budget: a burst of chunk packets (joining, flying into new terrain)
+	// is spread over a few frames instead of freezing one.
 	{
-		mc::Packet &p = packets[i];
+		std::vector<mc::Packet> fresh;
+		m_conn.Poll( fresh );
+		for ( size_t i = 0; i < fresh.size(); ++i ) m_backlog.push_back( std::move( fresh[i] ) );
+	}
+	const double start = Plat_FloatTime();
+	int handled = 0;
+	while ( !m_backlog.empty() )
+	{
+		if ( handled >= 16 && ( Plat_FloatTime() - start ) * 1000.0 >= mc_pump_ms.GetFloat() ) break;
+		++handled;
+		mc::Packet p = std::move( m_backlog.front() );
+		m_backlog.pop_front();
 		mc::Reader r = p.reader();
 		switch ( p.type )
 		{
@@ -191,6 +288,17 @@ void CMCBridge::Pump( std::vector<mc::Packet> &other )
 			break;
 		}
 		case mc::S2C_COLUMN_UNLOAD: m_world.ApplyUnloadPacket( r ); break;
+		case mc::S2C_SOUND:
+		{
+#ifdef CLIENT_DLL
+			std::string ev = r.str();
+			double x = r.f64(), y = r.f64(), z = r.f64();
+			float vol = r.f32(), pitch = r.f32();
+			r.u8(); r.i32();   // category, entity
+			if ( r.ok() ) PlaySound( ev.c_str(), mc::Vec3d( x, y, z ), vol, pitch );
+#endif
+			break;
+		}
 		case mc::S2C_TIME: m_dayTime = r.i64(); break;
 		case mc::S2C_DIG_PROGRESS:
 		{
@@ -379,6 +487,13 @@ void CMCBridge::OnBlockChanged( const mc::BlockPos &pos, uint16 oldId, uint16 ne
 	bool broke = newId == mc::BlockRegistry::AIR && oldDef.shape != mc::SHAPE_AIR && oldDef.shape != mc::SHAPE_LIQUID;
 	bool placed = oldId == mc::BlockRegistry::AIR && newDef.shape != mc::SHAPE_AIR && newDef.shape != mc::SHAPE_LIQUID;
 	if ( !broke && !placed ) return;
+	{
+		// Minecraft's own sound for the block (break: volume (v+1)/2, pitch 0.8 - like vanilla)
+		const mc::BlockDef &d = broke ? oldDef : newDef;
+		uint16 snd = d.sounds[ broke ? mc::BlockDef::SND_BREAK : mc::BlockDef::SND_PLACE ];
+		if ( snd && PlaySound( m_world.Registry().SoundName( snd ).c_str(), mc::Vec3d( pos.x + 0.5, pos.y + 0.5, pos.z + 0.5 ), 1.f, 0.8f ) )
+			return;
+	}
 	Vector origin = MC_V( m_coords.ToSource( mc::Vec3d( pos.x + 0.5, pos.y + 0.5, pos.z + 0.5 ) ) );
 	C_BasePlayer *pLocal = C_BasePlayer::GetLocalPlayer();
 	if ( pLocal && ( pLocal->GetAbsOrigin() - origin ).LengthSqr() > 2048.f * 2048.f ) return;
@@ -451,7 +566,6 @@ const char *MC_PrettyItemName( const char *id, char *out, int outLen )
 //-----------------------------------------------------------------------------
 // Diagnostics: mc_status / cl_mc_status
 //-----------------------------------------------------------------------------
-#include "tf2mc/mc_world_entity.h"
 
 void MC_DebugProbe( CBaseEntity *pPlayer, const char *tag )
 {
@@ -525,3 +639,66 @@ static struct MCClipTraceRegistrar
 {
 	MCClipTraceRegistrar() { g_pfnMCClipTrace = MC_ClipTraceImpl; }
 } s_MCClipTraceRegistrar;
+
+//-----------------------------------------------------------------------------
+// Player hull in Minecraft worlds (hooked into CTFGameRules::GetViewVectors)
+// TF2's 48-unit-wide hull is wider than a block at ~46 units/block, so 1-block doorways and
+// tunnels would be impassable. While the bridge is live the hull becomes Minecraft's 0.6 blocks
+// wide; height stays TF2's (82 units = ~1.8 blocks, Steve's height). Computed from networked
+// mc_world state + a replicated cvar, so client prediction always matches the server.
+//-----------------------------------------------------------------------------
+static ConVar mc_narrow_hull( "mc_narrow_hull", "1", FCVAR_REPLICATED | FCVAR_NOTIFY, "Use Minecraft's 0.6-block player width while the Minecraft world is live (fits 1-block doorways)" );
+
+const CViewVectors *MC_GetViewVectors()
+{
+	CMCWorld *w = CMCWorld::Get();
+	if ( !w || !w->m_bReady || !mc_narrow_hull.GetBool() || w->m_flScale <= 0.f ) return NULL;
+	static CViewVectors s_vv(
+		Vector( 0, 0, 72 ),
+		Vector( -24, -24, 0 ), Vector( 24, 24, 82 ),
+		Vector( -24, -24, 0 ), Vector( 24, 24, 62 ), Vector( 0, 0, 45 ),
+		Vector( -10, -10, -10 ), Vector( 10, 10, 10 ),
+		Vector( 0, 0, 14 ) );
+	float half = clamp( 0.3f * w->m_flScale, 8.f, 24.f );
+	s_vv.m_vHullMin.Init( -half, -half, 0 );
+	s_vv.m_vHullMax.Init( half, half, 82 );
+	s_vv.m_vDuckHullMin.Init( -half, -half, 0 );
+	s_vv.m_vDuckHullMax.Init( half, half, 62 );
+	return &s_vv;
+}
+
+// Minecraft's step height is 0.6 blocks: walk up slabs, stairs and paths without jumping.
+float MC_StepSize( float tfStepSize )
+{
+	CMCWorld *w = CMCWorld::Get();
+	if ( !w || !w->m_bReady || w->m_flScale <= 0.f ) return tfStepSize;
+	return MAX( tfStepSize, 0.6f * w->m_flScale );
+}
+
+//-----------------------------------------------------------------------------
+// Footsteps on Minecraft blocks play the block's Minecraft step sound (hooked into
+// CBasePlayer::PlayStepSound through g_pfnMCPlayStepSound, so non-TF2MC projects still link).
+// Footsteps are generated client side for visible players; the server just stays quiet.
+//-----------------------------------------------------------------------------
+static bool MC_PlayStepSoundImpl( CBasePlayer *pPlayer, const Vector &origin, float fvol )
+{
+	if ( !MC_IsActive() || !pPlayer ) return false;
+	CMCBridge &b = MCBridge();
+	mc::Vec3d m = b.Coords().ToMC( MC_V( origin ) );
+	int x = mc::FloorI( m.x ), z = mc::FloorI( m.z ), y = mc::FloorI( m.y - 0.05 );
+	const mc::BlockDef *d = &b.World().GetDef( x, y, z );
+	if ( d->shape == mc::SHAPE_AIR ) d = &b.World().GetDef( x, --y, z );   // standing on a fence / wall top
+	uint16 snd = d->sounds[mc::BlockDef::SND_STEP];
+	if ( !snd ) return false;
+	const std::string &ev = b.World().Registry().SoundName( snd );
+	if ( !b.HasSound( ev.c_str() ) ) return false;   // no converted sounds: keep TF2's
+#ifdef CLIENT_DLL
+	b.PlaySound( ev.c_str(), mc::Vec3d( m.x, y + 1.0, m.z ), clamp( fvol * 1.5f, 0.15f, 1.f ), 1.f );
+#endif
+	return true;
+}
+
+static struct MCStepSoundRegistrar
+{
+	MCStepSoundRegistrar() { g_pfnMCPlayStepSound = MC_PlayStepSoundImpl; }
+} s_MCStepSoundRegistrar;

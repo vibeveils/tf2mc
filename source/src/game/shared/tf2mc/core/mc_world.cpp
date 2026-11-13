@@ -174,6 +174,7 @@ namespace mc
 
 	int BlockRegistry::LoadDefinitions( const std::string &text )
 	{
+		++m_generation;
 		std::istringstream in( text );
 		std::string line;
 		int count = 0;
@@ -212,7 +213,8 @@ namespace mc
 				if ( k == "tint" )
 				{
 					d.tint = v == "grass" ? TINT_GRASS : v == "foliage" ? TINT_FOLIAGE : v == "water" ? TINT_WATER :
-							 v == "spruce" ? TINT_SPRUCE : v == "birch" ? TINT_BIRCH : TINT_NONE;
+							 v == "spruce" ? TINT_SPRUCE : v == "birch" ? TINT_BIRCH : v == "dry_foliage" ? TINT_DRY_FOLIAGE :
+							 v == "redstone" ? TINT_REDSTONE : v == "lily" ? TINT_LILY : v == "stem" ? TINT_STEM : TINT_NONE;
 				}
 				else if ( k == "tintmask" ) d.tintMask = (uint8_t)atoi( v.c_str() );
 				else if ( k == "opaque" ) d.opaque = v != "0";
@@ -255,16 +257,30 @@ namespace mc
 		auto it = m_ids.find( name );
 		if ( it != m_ids.end() ) return it->second;
 		if ( m_defs.size() >= 65535 ) return 0;
+		++m_generation;
 		uint16_t id = (uint16_t)m_defs.size();
 		m_defs.push_back( BaseDef( name ) );
 		m_ids[ name ] = id;
 		return id;
 	}
 
+	uint16_t BlockRegistry::InternSound( const std::string &name )
+	{
+		if ( name.empty() ) return 0;
+		auto it = m_soundIds.find( name );
+		if ( it != m_soundIds.end() ) return it->second;
+		if ( m_soundNames.size() >= 65535 ) return 0;
+		uint16_t id = (uint16_t)m_soundNames.size();
+		m_soundNames.push_back( name );
+		m_soundIds[name] = id;
+		return id;
+	}
+
 	uint16_t BlockRegistry::DefineState( int32_t stateId, const std::string &rawName, const std::string &props, uint8_t flags, uint8_t light,
-										 const std::vector<Box> &coll, const std::vector<Box> &shape )
+										 const std::vector<Box> &coll, const std::vector<Box> &shape, const std::string *sounds )
 	{
 		std::string name = rawName.find( ':' ) == std::string::npos ? "minecraft:" + rawName : rawName;
+		++m_generation;
 		BlockDef d = BaseDef( name );
 		if ( shape.empty() && coll.empty() && !( flags & ( STATE_LIQUID | STATE_COLLIDES ) ) && d.shape == SHAPE_AIR )
 		{
@@ -273,6 +289,8 @@ namespace mc
 		}
 		d.props = props;
 		d.lightEmission = light;
+		if ( sounds )
+			for ( int i = 0; i < BlockDef::SND_COUNT; ++i ) d.sounds[i] = InternSound( sounds[i] );
 		d.climbable = d.climbable || ( flags & STATE_CLIMBABLE );
 		d.waterlogged = ( flags & STATE_WATERLOGGED ) != 0;
 		d.collides = ( flags & STATE_COLLIDES ) && !coll.empty();
@@ -311,8 +329,20 @@ namespace mc
 			d.shape = SHAPE_BOXES;
 			d.boxes = shape;
 		}
-		d.opaque = ( flags & STATE_OPAQUE_CUBE ) && d.shape == SHAPE_CUBE && !d.cullSame && !d.translucent;
+		const bool fullShape = shape.size() == 1 && shape[0].IsFull();
+		d.opaque = ( flags & STATE_OPAQUE_CUBE ) && fullShape && d.shape != SHAPE_LIQUID && !d.cullSame && !d.translucent;
 		d.emissive = d.emissive || light >= 10;
+
+		// Real Minecraft models (mc_models.txt), when available, replace cube/box/cross drawing
+		if ( d.shape != SHAPE_LIQUID && d.shape != SHAPE_AIR && m_models )
+		{
+			d.models = ModelsFor( name, props );
+			if ( !d.models.empty() )
+			{
+				d.shape = SHAPE_MODEL;
+				d.boxes = shape;   // picking / outline
+			}
+		}
 
 		auto it = m_states.find( stateId );
 		uint16_t id;
@@ -325,6 +355,137 @@ namespace mc
 			m_states[stateId] = id;
 		}
 		return id;
+	}
+
+	int BlockRegistry::LoadModels( const std::string &text )
+	{
+		++m_generation;
+		auto models = std::make_shared<std::vector<BlockModel>>();
+		auto rules = std::make_shared<std::unordered_map<std::string, BlockRules>>();
+		std::istringstream in( text );
+		std::string line;
+		BlockModel *cur = nullptr;
+		while ( std::getline( in, line ) )
+		{
+			if ( line.empty() || line[0] == '#' ) continue;
+			const char *c = line.c_str();
+			if ( c[0] == 'q' && c[1] == ' ' && cur )
+			{
+				ModelQuad q;
+				int tile = -1, cull = -1, face = 0, tint = 0, shade = 1, used = 0;
+				if ( sscanf( c + 2, "%d %d %d %d %d%n", &tile, &cull, &face, &tint, &shade, &used ) < 5 ) continue;
+				const char *p = c + 2 + used;
+				bool ok = true;
+				for ( int k = 0; k < 4 && ok; ++k )
+				{
+					int n = 0;
+					ok = sscanf( p, "%f %f %f %f %f%n", &q.pos[k][0], &q.pos[k][1], &q.pos[k][2], &q.uv[k][0], &q.uv[k][1], &n ) == 5;
+					p += n;
+				}
+				if ( !ok ) continue;
+				q.tile = (int16_t)tile; q.cull = (int8_t)( cull >= 0 && cull < 6 ? cull : -1 ); q.face = (int8_t)( face >= 0 && face < 6 ? face : 1 );
+				q.tint = tint ? 1 : 0; q.shade = shade ? 1 : 0;
+				cur->quads.push_back( q );
+				continue;
+			}
+			std::istringstream ls( line );
+			std::string kind;
+			ls >> kind;
+			if ( kind == "models" ) { size_t n = 0; ls >> n; models->reserve( n ); }
+			else if ( kind == "m" )
+			{
+				size_t id = 0;
+				ls >> id;
+				if ( id >= models->size() ) models->resize( id + 1 );
+				cur = &( *models )[id];
+			}
+			else if ( kind == "v" || kind == "p" )
+			{
+				std::string name, cond;
+				uint32_t model = 0;
+				if ( !( ls >> name >> cond >> model ) ) continue;
+				BlockRules &br = ( *rules )[name];
+				br.multipart = kind == "p";
+				Rule r;
+				r.model = model;
+				if ( cond != "-" )
+				{
+					std::istringstream alts( cond );
+					std::string alt;
+					while ( std::getline( alts, alt, ';' ) )
+					{
+						std::vector<RuleTerm> terms;
+						std::istringstream ts( alt );
+						std::string term;
+						while ( std::getline( ts, term, ',' ) )
+						{
+							size_t eq = term.find( '=' );
+							if ( eq == std::string::npos ) continue;
+							RuleTerm t;
+							t.key = term.substr( 0, eq );
+							std::string vals = term.substr( eq + 1 );
+							if ( !vals.empty() && vals[0] == '!' ) { t.negate = true; vals = vals.substr( 1 ); }
+							std::istringstream vs( vals );
+							std::string v;
+							while ( std::getline( vs, v, '|' ) ) t.values.push_back( v );
+							terms.push_back( t );
+						}
+						r.any.push_back( terms );
+					}
+				}
+				br.rules.push_back( r );
+			}
+		}
+		m_models = models;
+		m_rules = rules;
+		return (int)models->size();
+	}
+
+	std::vector<uint32_t> BlockRegistry::ModelsFor( const std::string &name, const std::string &props ) const
+	{
+		std::vector<uint32_t> out;
+		if ( !m_rules || !m_models ) return out;
+		auto it = m_rules->find( name );
+		if ( it == m_rules->end() ) return out;
+		// parse "a=b,c=d"
+		std::vector<std::pair<std::string, std::string>> kv;
+		size_t start = 0;
+		while ( start < props.size() )
+		{
+			size_t end = props.find( ',', start );
+			if ( end == std::string::npos ) end = props.size();
+			size_t eq = props.find( '=', start );
+			if ( eq != std::string::npos && eq < end ) kv.push_back( std::make_pair( props.substr( start, eq - start ), props.substr( eq + 1, end - eq - 1 ) ) );
+			start = end + 1;
+		}
+		auto value = [&]( const std::string &k ) -> const std::string * {
+			for ( const auto &p : kv ) if ( p.first == k ) return &p.second;
+			return nullptr;
+		};
+		auto termOk = [&]( const RuleTerm &t ) {
+			const std::string *v = value( t.key );
+			if ( !v ) return false;
+			bool in = std::find( t.values.begin(), t.values.end(), *v ) != t.values.end();
+			return t.negate ? !in : in;
+		};
+		auto ruleOk = [&]( const Rule &r ) {
+			if ( r.any.empty() ) return true;
+			for ( const auto &terms : r.any )
+			{
+				bool all = true;
+				for ( const RuleTerm &t : terms ) if ( !termOk( t ) ) { all = false; break; }
+				if ( all ) return true;
+			}
+			return false;
+		};
+		const BlockRules &br = it->second;
+		for ( const Rule &r : br.rules )
+		{
+			if ( !ruleOk( r ) || r.model >= m_models->size() ) continue;
+			out.push_back( r.model );
+			if ( !br.multipart ) break;   // variants: first match wins
+		}
+		return out;
 	}
 
 	uint16_t BlockRegistry::ForState( int32_t stateId )
@@ -363,6 +524,28 @@ namespace mc
 	bool VoxelWorld::IsColumnLoaded( int cx, int cz ) const
 	{
 		return m_columns.find( ColKey( cx, cz ) ) != m_columns.end();
+	}
+
+	void VoxelWorld::CopyNeighborhood( const VoxelWorld &src, int cx, int sy, int cz, const BlockRegistry *reg )
+	{
+		m_columns.clear();
+		m_minSection = src.m_minSection;
+		m_sectionCount = src.m_sectionCount;
+		m_regView = reg;
+		for ( int dx = -1; dx <= 1; ++dx )
+			for ( int dz = -1; dz <= 1; ++dz )
+			{
+				auto it = src.m_columns.find( ColKey( cx + dx, cz + dz ) );
+				if ( it == src.m_columns.end() ) continue;
+				Column &col = m_columns[ ColKey( cx + dx, cz + dz ) ];
+				col.sections.resize( it->second.sections.size() );
+				for ( int dy = -1; dy <= 1; ++dy )
+				{
+					int i = sy + dy - m_minSection;
+					if ( i < 0 || i >= (int)it->second.sections.size() || !it->second.sections[i] ) continue;
+					col.sections[i].reset( new Section( *it->second.sections[i] ) );
+				}
+			}
 	}
 
 	const Section *VoxelWorld::GetSection( int cx, int sy, int cz ) const
@@ -537,8 +720,10 @@ namespace mc
 			uint8_t flags = r.u8(), light = r.u8();
 			ReadBoxes( r, coll );
 			ReadBoxes( r, shape );
+			std::string sounds[BlockDef::SND_COUNT];
+			for ( int k = 0; k < BlockDef::SND_COUNT; ++k ) sounds[k] = r.str();   // v3
 			if ( !r.ok() ) return false;
-			m_registry.DefineState( id, name, props, flags, light, coll, shape );
+			m_registry.DefineState( id, name, props, flags, light, coll, shape, sounds );
 		}
 		return r.ok();
 	}

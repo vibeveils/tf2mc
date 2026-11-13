@@ -9,6 +9,13 @@
 #include "tier0/valve_minmax_off.h"
 #include "tier0/memdbgoff.h"
 
+#include <algorithm>
+#include <condition_variable>
+#include <deque>
+#include <memory>
+#include <mutex>
+#include <thread>
+
 #include "tf2mc/core/mc_protocol.h"
 #include "tf2mc/core/mc_world.h"
 #include "tf2mc/core/mc_collide.h"

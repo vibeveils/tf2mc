@@ -1,6 +1,6 @@
 diff -ruN a/src/game/client/client_tf.vpc b/src/game/client/client_tf.vpc
 --- a/src/game/client/client_tf.vpc	2026-11-05 04:21:23.000000000 +0000
-+++ b/src/game/client/client_tf.vpc	2026-11-13 18:50:44.051295853 +0000
++++ b/src/game/client/client_tf.vpc	2026-11-13 20:38:28.798596673 +0000
 @@ -15,6 +15,7 @@
  $include "$SRCDIR\game\shared\tf\tf_gcmessages_include.vpc"
  $include "$SRCDIR\game\shared\tf\tf_proto_def_messages_include.vpc"
@@ -11,7 +11,7 @@ diff -ruN a/src/game/client/client_tf.vpc b/src/game/client/client_tf.vpc
  
 diff -ruN a/src/game/server/server_tf.vpc b/src/game/server/server_tf.vpc
 --- a/src/game/server/server_tf.vpc	2026-11-05 04:21:23.000000000 +0000
-+++ b/src/game/server/server_tf.vpc	2026-11-13 18:50:44.051461768 +0000
++++ b/src/game/server/server_tf.vpc	2026-11-13 20:38:28.799046257 +0000
 @@ -10,6 +10,7 @@
  
  $Include "$SRCDIR\game\server\server_base.vpc"
@@ -22,7 +22,7 @@ diff -ruN a/src/game/server/server_tf.vpc b/src/game/server/server_tf.vpc
  $Include "$SRCDIR\game\server\nav_mesh.vpc"
 diff -ruN a/src/game/server/tf/tf_obj_sentrygun.cpp b/src/game/server/tf/tf_obj_sentrygun.cpp
 --- a/src/game/server/tf/tf_obj_sentrygun.cpp	2026-11-05 04:21:23.000000000 +0000
-+++ b/src/game/server/tf/tf_obj_sentrygun.cpp	2026-11-13 18:50:44.038176018 +0000
++++ b/src/game/server/tf/tf_obj_sentrygun.cpp	2026-11-13 20:38:28.784641839 +0000
 @@ -25,6 +25,7 @@
  #include "tf_weapon_knife.h"
  #include "tf_logic_robot_destruction.h"
@@ -44,7 +44,7 @@ diff -ruN a/src/game/server/tf/tf_obj_sentrygun.cpp b/src/game/server/tf/tf_obj_
  			// target objects
 diff -ruN a/src/game/server/tf/tf_player.cpp b/src/game/server/tf/tf_player.cpp
 --- a/src/game/server/tf/tf_player.cpp	2026-11-05 04:21:23.000000000 +0000
-+++ b/src/game/server/tf/tf_player.cpp	2026-11-13 18:50:44.028061040 +0000
++++ b/src/game/server/tf/tf_player.cpp	2026-11-13 20:38:28.783543201 +0000
 @@ -136,6 +136,8 @@
  #include "haptics/haptic_utils.h"
  
@@ -86,9 +86,33 @@ diff -ruN a/src/game/server/tf/tf_player.cpp b/src/game/server/tf/tf_player.cpp
  
  		if ( !bCivilianOkay && ( i >= TF_LAST_NORMAL_CLASS ) )
  		{
+diff -ruN a/src/game/shared/baseplayer_shared.cpp b/src/game/shared/baseplayer_shared.cpp
+--- a/src/game/shared/baseplayer_shared.cpp	2026-11-05 04:21:23.000000000 +0000
++++ b/src/game/shared/baseplayer_shared.cpp	2026-11-13 20:38:28.768159714 +0000
+@@ -665,6 +665,10 @@
+ //			fvol - 
+ //			force - force sound to play
+ //-----------------------------------------------------------------------------
++// TF2MC: set by tf2mc/mc_bridge.cpp; plays Minecraft block step sounds
++typedef bool ( *MC_PlayStepSoundFn )( CBasePlayer *pPlayer, const Vector &vecOrigin, float fvol );	// TF2MC
++MC_PlayStepSoundFn g_pfnMCPlayStepSound = NULL;	// TF2MC
++
+ void CBasePlayer::PlayStepSound( Vector &vecOrigin, surfacedata_t *psurface, float fvol, bool force )
+ {
+ 	if ( gpGlobals->maxClients > 1 && !sv_footsteps.GetFloat() )
+@@ -676,6 +680,9 @@
+ 		return;
+ #endif
+ 
++	if ( g_pfnMCPlayStepSound && g_pfnMCPlayStepSound( this, vecOrigin, fvol ) )	// TF2MC: Minecraft block step sound
++		return;
++
+ 	if ( !psurface )
+ 		return;
+ 
 diff -ruN a/src/game/shared/tf/tf_flame.cpp b/src/game/shared/tf/tf_flame.cpp
 --- a/src/game/shared/tf/tf_flame.cpp	2026-11-05 04:21:23.000000000 +0000
-+++ b/src/game/shared/tf/tf_flame.cpp	2026-11-13 18:50:44.051048315 +0000
++++ b/src/game/shared/tf/tf_flame.cpp	2026-11-13 20:38:28.797927003 +0000
 @@ -601,7 +601,7 @@
  		// only add enemy robots
  		m_Targets.AddToTail( pEnt );
@@ -109,7 +133,7 @@ diff -ruN a/src/game/shared/tf/tf_flame.cpp b/src/game/shared/tf/tf_flame.cpp
  	}
 diff -ruN a/src/game/shared/tf/tf_gamemovement.cpp b/src/game/shared/tf/tf_gamemovement.cpp
 --- a/src/game/shared/tf/tf_gamemovement.cpp	2026-11-05 04:21:23.000000000 +0000
-+++ b/src/game/shared/tf/tf_gamemovement.cpp	2026-11-13 18:50:44.009531015 +0000
++++ b/src/game/shared/tf/tf_gamemovement.cpp	2026-11-13 20:38:28.767332731 +0000
 @@ -22,6 +22,7 @@
  #include "tf_weapon_buff_item.h"
  #include "halloween/tf_weapon_spellbook.h"
@@ -188,7 +212,7 @@ diff -ruN a/src/game/shared/tf/tf_gamemovement.cpp b/src/game/shared/tf/tf_gamem
  		if ( m_pTFPlayer->m_Shared.InCond( TF_COND_PARACHUTE_ACTIVE ) && mv->m_vecVelocity[2] < 0 )
 diff -ruN a/src/game/shared/tf/tf_gamerules.cpp b/src/game/shared/tf/tf_gamerules.cpp
 --- a/src/game/shared/tf/tf_gamerules.cpp	2026-11-05 04:21:23.000000000 +0000
-+++ b/src/game/shared/tf/tf_gamerules.cpp	2026-11-13 18:50:44.049979282 +0000
++++ b/src/game/shared/tf/tf_gamerules.cpp	2026-11-13 20:38:28.796930230 +0000
 @@ -76,6 +76,9 @@
  	#include "econ_gcmessages.h"
  	#include "vgui/ILocalize.h"
@@ -199,7 +223,19 @@ diff -ruN a/src/game/shared/tf/tf_gamerules.cpp b/src/game/shared/tf/tf_gamerule
  	#include "tf_ammo_pack.h"
  	#include "tf_gcmessages.h"
  	#include "vote_controller.h"
-@@ -4657,6 +4660,9 @@
+@@ -1372,8 +1375,11 @@
+ 	Vector( 0, 0, 65 ),		// TF_CLASS_CIVILIAN,		// TF_LAST_NORMAL_CLASS
+ };
+ 
++const CViewVectors *MC_GetViewVectors();	// TF2MC (tf2mc/mc_bridge.cpp)
+ const CViewVectors *CTFGameRules::GetViewVectors() const
+ {
++	if ( const CViewVectors *pMC = MC_GetViewVectors() )	// TF2MC: Minecraft-width hull
++		return pMC;
+ 	return &g_TFViewVectors;
+ }
+ 
+@@ -4657,6 +4663,9 @@
  //-----------------------------------------------------------------------------
  bool CTFGameRules::RoundCleanupShouldIgnore( CBaseEntity *pEnt )
  {
@@ -209,7 +245,7 @@ diff -ruN a/src/game/shared/tf/tf_gamerules.cpp b/src/game/shared/tf/tf_gamerule
  	if ( FindInList( s_PreserveEnts, pEnt->GetClassname() ) )
  		return true;
  
-@@ -5666,6 +5672,8 @@
+@@ -5666,6 +5675,8 @@
  //-----------------------------------------------------------------------------
  void CTFGameRules::RadiusDamage( CTFRadiusDamageInfo &info )
  {
@@ -220,7 +256,7 @@ diff -ruN a/src/game/shared/tf/tf_gamerules.cpp b/src/game/shared/tf/tf_gamerule
  	int iDamageEnemies = 0;
 diff -ruN a/src/game/shared/util_shared.cpp b/src/game/shared/util_shared.cpp
 --- a/src/game/shared/util_shared.cpp	2026-11-05 04:21:23.000000000 +0000
-+++ b/src/game/shared/util_shared.cpp	2026-11-13 18:50:43.997180177 +0000
++++ b/src/game/shared/util_shared.cpp	2026-11-13 20:38:28.765977885 +0000
 @@ -625,6 +625,16 @@
  //-----------------------------------------------------------------------------
  // Sweeps a particular entity through the world 
@@ -264,7 +300,7 @@ diff -ruN a/src/game/shared/util_shared.cpp b/src/game/shared/util_shared.cpp
  
 diff -ruN a/src/game/shared/util_shared.h b/src/game/shared/util_shared.h
 --- a/src/game/shared/util_shared.h	2026-11-05 04:21:23.000000000 +0000
-+++ b/src/game/shared/util_shared.h	2026-11-13 18:50:43.973430435 +0000
++++ b/src/game/shared/util_shared.h	2026-11-13 20:38:28.764783039 +0000
 @@ -246,6 +246,13 @@
  
  extern ConVar r_visualizetraces;

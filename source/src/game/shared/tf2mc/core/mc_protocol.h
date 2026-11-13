@@ -14,7 +14,7 @@
 
 namespace mc
 {
-	static const uint16_t PROTOCOL_VERSION = 2;
+	static const uint16_t PROTOCOL_VERSION = 3;   // v3: block sound types in STATE_DEFS, S2C_SOUND
 	static const uint32_t MAX_FRAME = 4u * 1024u * 1024u;
 
 	enum PacketId : uint8_t
@@ -37,6 +37,7 @@ namespace mc
 		S2C_PLAYER_STATUS   = 0x0F,
 		S2C_CONTAINER       = 0x10,
 		S2C_CONTAINER_CLOSE = 0x11,
+		S2C_SOUND           = 0x12,   // str event, f64 x y z (MC), f32 volume, f32 pitch, u8 category, i32 entity (-1)
 
 		// Source -> Minecraft
 		C2S_HELLO           = 0x40,

@@ -104,6 +104,17 @@ def main(sdk):
     r.append(edit_all(gm, "\tenginetrace->TraceRay( ray, fMask, &traceFilter, &pm );\n",
                       "\tenginetrace->TraceRay( ray, fMask, &traceFilter, &pm );\n\tMC_ClipTrace( ray, fMask, &traceFilter, &pm );\t// TF2MC\n"))
 
+    # --- footsteps on Minecraft blocks use the block's Minecraft step sound (function pointer:
+    #     baseplayer_shared.cpp is also built into projects without TF2MC)
+    bp = os.path.join(src, "game/shared/baseplayer_shared.cpp")
+    r.append(edit(bp, "void CBasePlayer::PlayStepSound( Vector &vecOrigin, surfacedata_t *psurface, float fvol, bool force )\n",
+                  "// TF2MC: set by tf2mc/mc_bridge.cpp; plays Minecraft block step sounds\n"
+                  "typedef bool ( *MC_PlayStepSoundFn )( CBasePlayer *pPlayer, const Vector &vecOrigin, float fvol );\t// TF2MC\n"
+                  "MC_PlayStepSoundFn g_pfnMCPlayStepSound = NULL;\t// TF2MC\n\n", after=False))
+    r.append(edit(bp, "\tif ( !psurface )\n\t\treturn;\n\n\tint nSide = m_Local.m_nStepside;\n",
+                  "\tif ( g_pfnMCPlayStepSound && g_pfnMCPlayStepSound( this, vecOrigin, fvol ) )\t// TF2MC: Minecraft block step sound\n\t\treturn;\n\n",
+                  after=False))
+
     # --- player: Civilian = Minecraft mode, PostThink interaction, no TF weapons for it
     r.append(edit(pl, '#include "gc_clientsystem.h"', '\n#include "tf2mc/mc_bridge.h"\t\t// TF2MC\n#include "tf2mc/mc_server.h"\t\t// TF2MC'))
     r.append(edit(pl, "\t\tbool bCivilianOkay = false;", None,
@@ -124,6 +135,12 @@ def main(sdk):
     r.append(edit(gr, '#include "tier3/tier3.h"', '\n#ifdef GAME_DLL\n#include "tf2mc/mc_server.h"\t// TF2MC\n#endif'))
     r.append(edit(gr, "void CTFGameRules::RadiusDamage( CTFRadiusDamageInfo &info )\n{\n",
                   "\tMC_OnRadiusDamage( info.vecSrc, info.flRadius, info.dmgInfo ? info.dmgInfo->GetAttacker() : NULL );\t// TF2MC\n\n"))
+
+    # --- Minecraft-width player hull while the bridge is live (1-block doorways at ~46 units/block)
+    r.append(edit(gr, "const CViewVectors *CTFGameRules::GetViewVectors() const\n{\n",
+                  "\tif ( const CViewVectors *pMC = MC_GetViewVectors() )\t// TF2MC: Minecraft-width hull\n\t\treturn pMC;\n"))
+    r.append(edit(gr, "const CViewVectors *CTFGameRules::GetViewVectors() const\n",
+                  "const CViewVectors *MC_GetViewVectors();\t// TF2MC (tf2mc/mc_bridge.cpp)\n", after=False))
 
     # --- round restarts ("waiting for players", every new round) must not delete the Minecraft world/mobs
     r.append(edit(gr, "bool CTFGameRules::RoundCleanupShouldIgnore( CBaseEntity *pEnt )\n{\n",

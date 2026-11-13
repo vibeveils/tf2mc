@@ -71,6 +71,7 @@ public final class BridgeController {
         this.net = net;
         this.active = server.overworld();
         this.arrival = active.getLevelData().getRespawnData().pos();
+        SoundForwarder.init(server, net);
     }
 
     public static BridgeController start(MinecraftServer server, BridgeConfig cfg) {
@@ -89,6 +90,7 @@ public final class BridgeController {
     public void shutdown() {
         for (BridgedPlayer p : new ArrayList<>(players.values())) p.remove();
         players.clear();
+        SoundForwarder.init(null, null);
         net.close();
     }
 
@@ -96,6 +98,7 @@ public final class BridgeController {
 
     public void tick() {
         ticks++;
+        SoundForwarder.tick();
         net.drain(this::onOpen, this::onPacket, this::onClose, 20000);
 
         // Party portal travel: follow the first bridged player that changed dimension

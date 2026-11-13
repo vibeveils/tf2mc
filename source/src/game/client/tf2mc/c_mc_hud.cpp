@@ -136,10 +136,24 @@ static void MC_DrawItem( const char *item, int count, int durability, int x, int
 	}
 }
 
+// Build mode (any TF class, toggled with mc_build / B): weapon away, Minecraft controls + hotbar.
+static bool s_bBuildMode = false;
+
 static bool MC_LocalIsSteve()
 {
 	C_TFPlayer *p = C_TFPlayer::GetLocalTFPlayer();
-	return p && p->IsAlive() && p->IsPlayerClass( TF_CLASS_CIVILIAN );
+	return p && p->IsAlive() && ( p->IsPlayerClass( TF_CLASS_CIVILIAN ) || s_bBuildMode );
+}
+
+static void MC_SetLocalBuildMode( bool on, bool announce )
+{
+	if ( on == s_bBuildMode ) return;
+	s_bBuildMode = on;
+	engine->ServerCmd( on ? "mc_build 1" : "mc_build 0" );
+	engine->ClientCmd_Unrestricted( on ? "exec tf2mc_steve_binds" : "exec tf2mc_tf_binds" );
+	if ( announce )
+		Msg( on ? "TF2MC: build mode ON - LMB dig, RMB place/use, 1-9/wheel hotbar, E inventory, Q drop. B to go back to your weapons.\n"
+				: "TF2MC: build mode OFF - weapons back.\n" );
 }
 
 //=============================================================================
@@ -460,11 +474,34 @@ public:
 	{
 		if ( !s_hInventory.Get() && g_pClientMode && g_pClientMode->GetViewport() )
 			s_hInventory = new CMCInventoryPanel( g_pClientMode->GetViewport() );
+
+		// Build mode ends when you die, become Civilian (always building) or the world goes away
+		C_TFPlayer *p = C_TFPlayer::GetLocalTFPlayer();
+		if ( s_bBuildMode && ( !p || !p->IsAlive() || p->IsPlayerClass( TF_CLASS_CIVILIAN ) || !MCBridge().IsReady() ) )
+			MC_SetLocalBuildMode( false, false );
+
+		// First time in a Minecraft world: put build mode on B unless B is already used for something else
+		if ( !m_bOffered && MCBridge().IsReady() && p )
+		{
+			m_bOffered = true;
+			const char *b = engine->Key_BindingForKey( KEY_B );
+			if ( !b || !b[0] || !Q_stricmp( b, "lastdisguise" ) || !Q_stricmp( b, "mc_build" ) )
+			{
+				engine->ClientCmd_Unrestricted( "bind b mc_build" );
+				Msg( "TF2MC: press B to switch between your weapons and Minecraft build mode (dig, place, hotbar).\n" );
+			}
+			else
+				Msg( "TF2MC: B is bound to '%s'; bind a key to mc_build for Minecraft build mode (dig, place, hotbar).\n", b );
+		}
 	}
 	virtual void LevelShutdownPostEntity()
 	{
 		if ( s_hInventory.Get() ) s_hInventory->SetVisible( false );
+		s_bBuildMode = false;
 	}
+
+private:
+	bool m_bOffered = false;
 };
 static CMCHudSystem g_MCHudSystem;
 
@@ -502,6 +539,14 @@ CON_COMMAND( mc_steve, "Play as a regular Minecraft player (Civilian slot)" )
 {
 	engine->ClientCmd_Unrestricted( "joinclass civilian" );
 	engine->ClientCmd_Unrestricted( "exec tf2mc_steve_binds" );
+}
+
+CON_COMMAND( mc_build, "Toggle Minecraft build mode for TF classes (weapon away; dig, place, hotbar). mc_build 0/1 to set" )
+{
+	if ( !MCBridge().IsReady() ) { Msg( "TF2MC: not in a Minecraft world\n" ); return; }
+	C_TFPlayer *p = C_TFPlayer::GetLocalTFPlayer();
+	if ( p && p->IsPlayerClass( TF_CLASS_CIVILIAN ) ) { Msg( "TF2MC: Minecraft mode (Civilian) always builds\n" ); return; }
+	MC_SetLocalBuildMode( args.ArgC() > 1 ? atoi( args[1] ) != 0 : !s_bBuildMode, true );
 }
 
 CON_COMMAND( mc_tfbinds, "Restore normal TF2 weapon binds after Minecraft mode" )

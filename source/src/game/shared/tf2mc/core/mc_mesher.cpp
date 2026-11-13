@@ -14,6 +14,10 @@ namespace mc
 		case TINT_WATER:   return 0x3F76E4;
 		case TINT_SPRUCE:  return 0x619961;
 		case TINT_BIRCH:   return 0x80A755;
+		case TINT_DRY_FOLIAGE: return 0xA47A4A;   // leaf litter (dry foliage colormap, temperate)
+		case TINT_REDSTONE: return 0xB01010;      // mid-power wire
+		case TINT_LILY:    return 0x208030;
+		case TINT_STEM:    return 0xA0C030;
 		default:           return 0xFFFFFF;
 		}
 	}
@@ -63,10 +67,13 @@ namespace mc
 			int16_t waterTile;
 		};
 
+		// Full opaque block: hides neighbouring faces, darkens AO. (Models count when their
+		// outline is a full cube - opaque is only set then.)
+		inline bool IsOccluder( const BlockDef &d ) { return d.opaque && ( d.shape == SHAPE_CUBE || d.shape == SHAPE_MODEL ); }
+
 		inline bool Occludes( const Ctx &ctx, int x, int y, int z )
 		{
-			const BlockDef &d = ctx.w.GetDef( x, y, z );
-			return d.shape == SHAPE_CUBE && d.opaque;
+			return IsOccluder( ctx.w.GetDef( x, y, z ) );
 		}
 
 		void TileUV( const Ctx &ctx, int tile, float u, float v, float &ou, float &ov )
@@ -195,7 +202,7 @@ namespace mc
 			if ( ny >= ctx.w.MaxY() ) return true;
 			uint16_t nid = ctx.w.Get( nx, ny, nz );
 			const BlockDef &n = ctx.reg.Get( nid );
-			if ( n.shape == SHAPE_CUBE && n.opaque ) return false;
+			if ( IsOccluder( n ) ) return false;
 			if ( nid == selfId && self.cullSame ) return false;
 			if ( self.shape == SHAPE_LIQUID && n.shape == SHAPE_LIQUID ) return false;
 			return true;
@@ -222,8 +229,88 @@ namespace mc
 					{ x + diag[p][1][0], y + 1.0, z + diag[p][1][1] },
 				};
 				float uv[4][2] = { { 0, 0 }, { 0, 1 }, { 1, 1 }, { 1, 0 } };
-				EmitQuad( out, ctx, c, uv, tile, rgb, bright, 255, sky, blk, false );
-				EmitQuad( out, ctx, c, uv, tile, rgb, bright, 255, sky, blk, true );   // back side
+				EmitQuad( out, ctx, c, uv, tile, rgb, bright, 255, sky, blk, false );   // world materials are double sided
+			}
+		}
+	}
+
+	namespace
+	{
+		// Baked Minecraft model. Full faces flush with the block boundary get the same smooth
+		// lighting + AO as cubes; everything else (plants, stairs' inner faces, rotated planes)
+		// takes the brighter of the block's own cell and the cell it faces.
+		void EmitModel( std::vector<MeshVertex> &out, const Ctx &ctx, const BlockDef &d, uint16_t id, int x, int y, int z )
+		{
+			for ( uint32_t mi : d.models )
+			{
+				const BlockModel &m = ctx.reg.Model( mi );
+				for ( const ModelQuad &q : m.quads )
+				{
+					if ( q.cull >= 0 && !FaceVisible( ctx, d, id, x, y, z, q.cull ) ) continue;
+
+					int tile = ctx.opt.textured ? q.tile : -1;
+					bool textured = tile >= 0 && ctx.reg.HasAtlas();
+					uint32_t rgb;
+					if ( !textured ) rgb = BaseColor( ctx, d, q.face, false );
+					else rgb = ( q.tint && d.tint != TINT_NONE ) ? TintColor( d.tint ) : 0xFFFFFF;
+					float shade = ( d.emissive || !q.shade ) ? 1.f : kFaceShade[q.face];
+
+					// Full face on the block boundary?
+					int face = q.cull >= 0 ? q.cull : q.face;
+					const int axis = kNormal[face][0] ? 0 : kNormal[face][1] ? 1 : 2;
+					const bool positive = kNormal[face][axis] > 0;
+					const float plane = positive ? 1.f : 0.f;
+					bool full = q.cull >= 0;
+					float lo[3] = { 1, 1, 1 }, hi[3] = { 0, 0, 0 };
+					for ( int k = 0; k < 4; ++k )
+						for ( int a = 0; a < 3; ++a ) { lo[a] = std::min( lo[a], q.pos[k][a] ); hi[a] = std::max( hi[a], q.pos[k][a] ); }
+					for ( int a = 0; a < 3 && full; ++a )
+					{
+						if ( a == axis ) full = std::fabs( lo[a] - plane ) < 1e-3f && std::fabs( hi[a] - plane ) < 1e-3f;
+						else full = lo[a] < 1e-3f && hi[a] > 1.f - 1e-3f;
+					}
+
+					double corners[4][3];
+					float uvs[4][2], bright[4];
+					uint8_t sky[4], blk[4];
+					const int nx = x + kNormal[face][0], ny = y + kNormal[face][1], nz = z + kNormal[face][2];
+					int s1, b1, s2, b2;
+					CellLight( ctx, nx, ny, nz, s1, b1 );
+					CellLight( ctx, x, y, z, s2, b2 );
+					int baseSky = full ? s1 : std::max( s1, s2 ), baseBlk = std::max<int>( full ? b1 : std::max( b1, b2 ), d.lightEmission );
+					for ( int k = 0; k < 4; ++k )
+					{
+						corners[k][0] = x + q.pos[k][0]; corners[k][1] = y + q.pos[k][1]; corners[k][2] = z + q.pos[k][2];
+						uvs[k][0] = q.uv[k][0]; uvs[k][1] = q.uv[k][1];
+						float b = shade;
+						int vs = baseSky, vb = baseBlk;
+						if ( full && !d.emissive )
+						{
+							int off[3] = { q.pos[k][0] > 0.5f ? 1 : -1, q.pos[k][1] > 0.5f ? 1 : -1, q.pos[k][2] > 0.5f ? 1 : -1 };
+							int a1 = ( axis + 1 ) % 3, a2 = ( axis + 2 ) % 3;
+							int p1[3] = { nx, ny, nz }, p2[3] = { nx, ny, nz }, p3[3] = { nx, ny, nz };
+							p1[a1] += off[a1];
+							p2[a2] += off[a2];
+							p3[a1] += off[a1]; p3[a2] += off[a2];
+							int o1 = Occludes( ctx, p1[0], p1[1], p1[2] ), o2 = Occludes( ctx, p2[0], p2[1], p2[2] ), oc = Occludes( ctx, p3[0], p3[1], p3[2] );
+							if ( ctx.opt.ambientOcclusion )
+							{
+								int level = ( o1 && o2 ) ? 0 : 3 - ( o1 + o2 + oc );
+								b *= kAOLevels[level];
+							}
+							int sumS = baseSky, sumB = baseBlk, n = 1, ls, lb;
+							if ( !o1 ) { CellLight( ctx, p1[0], p1[1], p1[2], ls, lb ); sumS += ls; sumB += lb; ++n; }
+							if ( !o2 ) { CellLight( ctx, p2[0], p2[1], p2[2], ls, lb ); sumS += ls; sumB += lb; ++n; }
+							if ( !oc && !( o1 && o2 ) ) { CellLight( ctx, p3[0], p3[1], p3[2], ls, lb ); sumS += ls; sumB += lb; ++n; }
+							vs = ( sumS + n / 2 ) / n;
+							vb = ( sumB + n / 2 ) / n;
+						}
+						bright[k] = b;
+						sky[k] = (uint8_t)vs;
+						blk[k] = (uint8_t)std::max<int>( vb, d.lightEmission );
+					}
+					EmitQuad( out, ctx, corners, uvs, tile, rgb, bright, d.translucent ? 200 : 255, sky, blk );
+				}
 			}
 		}
 	}
@@ -250,6 +337,7 @@ namespace mc
 					switch ( d.shape )
 					{
 					case SHAPE_AIR: break;
+					case SHAPE_MODEL: EmitModel( bucket, ctx, d, id, x, y, z ); break;
 					case SHAPE_CROSS: EmitCross( bucket, ctx, d, x, y, z ); break;
 					case SHAPE_CUBE:
 					{

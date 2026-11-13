@@ -8,6 +8,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
+#include <sstream>
 
 using namespace mc;
 
@@ -20,22 +22,39 @@ enum { ST_AIR = 0, ST_STONE = 1, ST_GRASS = 9, ST_WATER = 86, ST_SHORT_GRASS = 2
 
 static void PutBox( Writer &w, float a, float b, float c, float d, float e, float f ) { w.f32( a ).f32( b ).f32( c ).f32( d ).f32( e ).f32( f ); }
 
+// v3: break, step, place, hit, fall sound ids after the shapes
+static void PutSounds( Writer &w, bool stone )
+{
+	static const char *kStone[5] = { "minecraft:block.stone.break", "minecraft:block.stone.step", "minecraft:block.stone.place", "minecraft:block.stone.hit", "minecraft:block.stone.fall" };
+	for ( int i = 0; i < 5; ++i ) w.str( stone ? kStone[i] : "" );
+}
+
 static std::vector<uint8_t> StateDefsPacket()
 {
 	Writer w( S2C_STATE_DEFS );
 	w.u16( 10 );
 	w.i32( ST_AIR ).str( "minecraft:air" ).str( "" ).u8( 0 ).u8( 0 ).u8( 0 ).u8( 0 );
+	PutSounds( w, false );
 	w.i32( ST_STONE ).str( "minecraft:stone" ).str( "" ).u8( STATE_COLLIDES | STATE_OPAQUE_CUBE ).u8( 0 ).u8( 1 ); PutBox( w, 0, 0, 0, 1, 1, 1 ); w.u8( 1 ); PutBox( w, 0, 0, 0, 1, 1, 1 );
+	PutSounds( w, true );
 	w.i32( ST_GRASS ).str( "minecraft:grass_block" ).str( "snowy=false" ).u8( STATE_COLLIDES | STATE_OPAQUE_CUBE ).u8( 0 ).u8( 1 ); PutBox( w, 0, 0, 0, 1, 1, 1 ); w.u8( 1 ); PutBox( w, 0, 0, 0, 1, 1, 1 );
+	PutSounds( w, false );
 	w.i32( ST_WATER ).str( "minecraft:water" ).str( "level=0" ).u8( STATE_LIQUID ).u8( 0 ).u8( 0 ).u8( 0 );
+	PutSounds( w, false );
 	w.i32( ST_SHORT_GRASS ).str( "minecraft:short_grass" ).str( "" ).u8( 0 ).u8( 0 ).u8( 0 ).u8( 1 ); PutBox( w, 0.125f, 0, 0.125f, 0.875f, 0.8125f, 0.875f );
+	PutSounds( w, false );
 	w.i32( ST_SLAB ).str( "minecraft:oak_slab" ).str( "type=bottom,waterlogged=false" ).u8( STATE_COLLIDES ).u8( 0 ).u8( 1 ); PutBox( w, 0, 0, 0, 1, 0.5f, 1 ); w.u8( 1 ); PutBox( w, 0, 0, 0, 1, 0.5f, 1 );
+	PutSounds( w, false );
 	w.i32( ST_GLASS ).str( "minecraft:glass" ).str( "" ).u8( STATE_COLLIDES ).u8( 0 ).u8( 1 ); PutBox( w, 0, 0, 0, 1, 1, 1 ); w.u8( 1 ); PutBox( w, 0, 0, 0, 1, 1, 1 );
+	PutSounds( w, false );
 	w.i32( ST_FENCE ).str( "minecraft:oak_fence" ).str( "east=true" ).u8( STATE_COLLIDES ).u8( 0 ).u8( 2 ); PutBox( w, 0.375f, 0, 0.375f, 0.625f, 1.5f, 0.625f ); PutBox( w, 0.625f, 0, 0.375f, 1, 1.5f, 0.625f );
 	w.u8( 2 ); PutBox( w, 0.375f, 0, 0.375f, 0.625f, 1, 0.625f ); PutBox( w, 0.625f, 0.375f, 0.4375f, 1, 0.9375f, 0.5625f );
+	PutSounds( w, false );
 	w.i32( ST_LADDER ).str( "minecraft:ladder" ).str( "facing=north" ).u8( STATE_COLLIDES | STATE_CLIMBABLE ).u8( 0 ).u8( 1 ); PutBox( w, 0, 0, 0.8125f, 1, 1, 1 ); w.u8( 1 ); PutBox( w, 0, 0, 0.8125f, 1, 1, 1 );
+	PutSounds( w, false );
 	w.i32( ST_STAIRS_WL ).str( "minecraft:oak_stairs" ).str( "facing=east,half=bottom,waterlogged=true" ).u8( STATE_COLLIDES | STATE_WATERLOGGED ).u8( 0 ).u8( 2 ); PutBox( w, 0, 0, 0, 1, 0.5f, 1 ); PutBox( w, 0.5f, 0.5f, 0, 1, 1, 1 );
 	w.u8( 2 ); PutBox( w, 0, 0, 0, 1, 0.5f, 1 ); PutBox( w, 0.5f, 0.5f, 0, 1, 1, 1 );
+	PutSounds( w, false );
 	return w.finish();
 }
 
@@ -123,6 +142,13 @@ static void TestWorld()
 	w.Reset( -4, 24 );
 	CHECK( w.MinY() == -64 && w.MaxY() == 320 );
 	ApplyFrame( w, StateDefsPacket() );
+	{
+		// v3 state defs carry the block sound type
+		const BlockDef &st = w.Registry().Get( w.Registry().ForState( ST_STONE ) );
+		CHECK( w.Registry().SoundName( st.sounds[BlockDef::SND_STEP] ) == "minecraft:block.stone.step" );
+		CHECK( w.Registry().SoundName( st.sounds[BlockDef::SND_BREAK] ) == "minecraft:block.stone.break" );
+		CHECK( w.Registry().Get( w.Registry().ForState( ST_GLASS ) ).sounds[BlockDef::SND_STEP] == 0 );
+	}
 	ApplyFrame( w, FloorSectionPacket( 0, 0 ) );
 	ApplyFrame( w, FloorSectionPacket( -1, 0 ) );
 	CHECK( w.IsColumnLoaded( 0, 0 ) && w.IsColumnLoaded( -1, 0 ) && !w.IsColumnLoaded( 1, 0 ) );
@@ -417,6 +443,123 @@ static void TestV2()
 	Vec3d pa = a.ToSource( Vec3d( 120.5, 70, -50 ) ), pb = b2.ToSource( Vec3d( 120.5, 70, -50 ) );
 	Vec3d sh = b2.ShiftFrom( a );
 	CHECK( NEAR( pa.x + sh.x, pb.x ) && NEAR( pa.y + sh.y, pb.y ) && NEAR( pa.z + sh.z, pb.z ) );
+
+	// Background meshing: a section meshed from a 3x3x3 neighbourhood copy (with a registry
+	// snapshot) must be identical to meshing it from the live world.
+	{
+		BlockRegistry snap( w.Registry() );
+		VoxelWorld copy;
+		copy.CopyNeighborhood( w, 0, 0, 0, &snap );
+		MesherOptions o2; o2.textured = false;
+		SectionMesh live, fromCopy;
+		BuildSectionMesh( w, c, 0, 0, 0, o2, live );
+		BuildSectionMesh( copy, c, 0, 0, 0, o2, fromCopy );
+		CHECK( live.QuadCount() > 0 );
+		CHECK( live.opaque.size() == fromCopy.opaque.size() && live.translucent.size() == fromCopy.translucent.size() );
+		bool same = live.opaque.size() == fromCopy.opaque.size() &&
+					( live.opaque.empty() || memcmp( live.opaque.data(), fromCopy.opaque.data(), live.opaque.size() * sizeof( MeshVertex ) ) == 0 );
+		CHECK( same );
+		CHECK( &static_cast<const VoxelWorld &>( copy ).Registry() == &snap );
+		uint32_t gen = w.Registry().Generation();
+		w.Registry().Intern( "minecraft:test_generation_bump" );
+		CHECK( w.Registry().Generation() != gen );
+	}
+}
+
+
+// Baked Minecraft models (tests/test_assets.py writes build/assets/scripts/mc_models.txt first)
+static std::string ReadText( const char *path )
+{
+	std::ifstream f( path );
+	std::stringstream ss;
+	ss << f.rdbuf();
+	return ss.str();
+}
+
+static void TestModels()
+{
+	std::string models = ReadText( "build/assets/scripts/mc_models.txt" );
+	std::string blocks = ReadText( "build/assets/scripts/mc_blocks.txt" );
+	if ( models.empty() ) { printf( "(models file missing: run test_assets.py first)\n" ); ++g_fail; return; }
+
+	VoxelWorld w;
+	w.Reset( 0, 2 );
+	BlockRegistry &reg = w.Registry();
+	CHECK( reg.LoadDefinitions( blocks ) > 0 );
+	CHECK( reg.LoadModels( models ) > 0 );
+	std::vector<Box> unit( 1, Box::Unit() ), none;
+	Box sg = { { 0.125f, 0, 0.125f }, { 0.875f, 0.75f, 0.875f } };
+	Box slab = { { 0, 0, 0 }, { 1, 0.5f, 1 } }, step = { { 0, 0.5f, 0 }, { 1, 1, 0.5f } };
+	std::vector<Box> stairShape = { slab, step };
+
+	uint16_t stone = reg.DefineState( 1, "minecraft:stone", "", STATE_COLLIDES | STATE_OPAQUE_CUBE, 0, unit, unit );
+	uint16_t seagrass = reg.DefineState( 2, "minecraft:seagrass", "", STATE_WATERLOGGED, 0, none, std::vector<Box>( 1, sg ) );
+	uint16_t stairsN = reg.DefineState( 3, "minecraft:oak_stairs", "facing=north,half=bottom,shape=straight,waterlogged=false", STATE_COLLIDES, 0, stairShape, stairShape );
+	uint16_t fence = reg.DefineState( 4, "minecraft:oak_fence", "east=false,north=true,south=false,waterlogged=false,west=true", STATE_COLLIDES, 0, unit, unit );
+	uint16_t litter = reg.DefineState( 5, "minecraft:leaf_litter", "facing=north,segment_amount=1", 0, 0, none, std::vector<Box>( 1, Box{ { 0, 0, 0 }, { 1, 1 / 16.f, 1 } } ) );
+	uint16_t chest = reg.DefineState( 6, "minecraft:chest", "facing=north,type=single,waterlogged=false", STATE_COLLIDES, 0, unit, std::vector<Box>( 1, Box{ { 1 / 16.f, 0, 1 / 16.f }, { 15 / 16.f, 14 / 16.f, 15 / 16.f } } ) );
+
+	CHECK( reg.Get( stone ).shape == SHAPE_MODEL && reg.Get( stone ).opaque );
+	CHECK( reg.Get( seagrass ).shape == SHAPE_MODEL && reg.Get( seagrass ).models.size() == 1 && !reg.Get( seagrass ).opaque && reg.Get( seagrass ).waterlogged );
+	CHECK( reg.Get( stairsN ).shape == SHAPE_MODEL && reg.Get( stairsN ).models.size() == 1 && !reg.Get( stairsN ).opaque );
+	CHECK( reg.Get( fence ).models.size() == 3 );           // post + north side + (east|west) side
+	CHECK( reg.Get( litter ).shape == SHAPE_MODEL && reg.Get( litter ).tint == TINT_DRY_FOLIAGE );
+	CHECK( reg.Get( chest ).shape == SHAPE_BOXES );          // no elements: simple-shape fallback
+	CHECK( reg.Get( stairsN ).boxes.size() == 2 );           // picking keeps the real outline
+	// variants: first match wins, unknown state -> no model
+	CHECK( reg.ModelsFor( "minecraft:oak_stairs", "facing=south,half=top,shape=outer_left,waterlogged=false" ).empty() );
+	CHECK( reg.ModelsFor( "minecraft:oak_fence", "east=false,north=false,south=false,waterlogged=false,west=false" ).size() == 1 );
+
+	{
+		// load column (0,0) with an empty section so edits apply
+		std::vector<uint16_t> pal( 1, BlockRegistry::AIR );
+		static uint16_t idx[4096] = {};
+		w.SetSection( 0, 0, 0, pal, idx );
+	}
+	Coords c;
+	MesherOptions opt;   // textured
+	auto quads = [&]( std::vector<MeshVertex> &v ) { return (int)v.size() / 4; };
+
+	// 1. two stones side by side: the touching faces are culled -> 10 quads
+	w.SetBlock( 2, 2, 2, stone );
+	w.SetBlock( 3, 2, 2, stone );
+	SectionMesh m;
+	BuildSectionMesh( w, c, 0, 0, 0, opt, m );
+	CHECK( quads( m.opaque ) == 10 );
+	w.SetBlock( 3, 2, 2, BlockRegistry::AIR );
+
+	// 2. seagrass: 4 double-sided planes, plus a water surface (it is waterlogged)
+	w.SetBlock( 8, 2, 8, seagrass );
+	BuildSectionMesh( w, c, 0, 0, 0, opt, m );
+	CHECK( quads( m.opaque ) == 6 + 4 );
+	CHECK( quads( m.translucent ) == 1 );
+	w.SetBlock( 8, 2, 8, BlockRegistry::AIR );
+
+	// 3. north stairs on top of stone: the slab's bottom is culled by the stone; the step top is on the north half
+	w.SetBlock( 2, 3, 2, stairsN );
+	BuildSectionMesh( w, c, 0, 0, 0, opt, m );
+	bool stepNorth = false;
+	for ( size_t i = 0; i + 3 < m.opaque.size(); i += 4 )
+	{
+		Vec3d a = c.ToMC( Vec3d( m.opaque[i].pos[0], m.opaque[i].pos[1], m.opaque[i].pos[2] ) );
+		Vec3d b = c.ToMC( Vec3d( m.opaque[i + 2].pos[0], m.opaque[i + 2].pos[1], m.opaque[i + 2].pos[2] ) );
+		if ( std::fabs( a.y - 4.0 ) < 1e-3 && std::fabs( b.y - 4.0 ) < 1e-3 && std::max( a.z, b.z ) <= 2.5 + 1e-3 && std::min( a.z, b.z ) >= 2.0 - 1e-3 ) stepNorth = true;
+	}
+	CHECK( stepNorth );
+	CHECK( quads( m.opaque ) == 6 + 10 );   // stone (all 6: stairs are not a full block) + stairs (11 faces, bottom culled by the stone)
+	w.SetBlock( 2, 3, 2, BlockRegistry::AIR );
+
+	// 4. UVs land inside the face's own tile (no half-texel squeeze)
+	bool inTile = true;
+	BuildSectionMesh( w, c, 0, 0, 0, opt, m );
+	int tpr = reg.TilesPerRow(), rows = reg.TileRows();
+	for ( size_t i = 0; i < m.opaque.size(); ++i )
+	{
+		float u = m.opaque[i].uv[0] * tpr, v = m.opaque[i].uv[1] * rows;
+		float fu = u - std::floor( u + 1e-4f ), fv = v - std::floor( v + 1e-4f );
+		if ( !( fu < 0.01f || fu > 0.99f ) || !( fv < 0.01f || fv > 0.99f ) ) inTile = false;   // cube corners sit on tile corners
+	}
+	CHECK( inTile );
 }
 
 int main()
@@ -428,6 +571,7 @@ int main()
 	TestPick();
 	TestMesher();
 	TestV2();
+	TestModels();
 	printf( "%d passed, %d failed\n", g_pass, g_fail );
 	return g_fail ? 1 : 0;
 }

@@ -32,14 +32,15 @@ ConVar mc_port( "mc_port", "25599", FCVAR_ARCHIVE, "TCP port of the tf2bridge mo
 ConVar mc_public_host( "mc_public_host", "", FCVAR_ARCHIVE, "Bridge address clients should use (empty = same as mc_host). Set this when mc_host is 127.0.0.1 and remote players join." );
 ConVar mc_secret( "mc_secret", "", FCVAR_ARCHIVE | FCVAR_PROTECTED, "Shared secret configured in tf2bridge.properties" );
 ConVar mc_autoconnect( "mc_autoconnect", "1", FCVAR_ARCHIVE, "Connect to the Minecraft bridge on map load" );
-ConVar mc_scale( "mc_scale", "64", FCVAR_ARCHIVE, "Hammer units per Minecraft block (applied on next connect)" );
+ConVar mc_scale( "mc_scale", "46", FCVAR_ARCHIVE, "Hammer units per Minecraft block (applied on next connect). 46 makes TF2's 82-unit-tall player ~1.8 blocks, like Steve" );
 ConVar mc_origin_y( "mc_origin_y", "128", FCVAR_ARCHIVE, "Minecraft Y mapped to Source z=0" );
 ConVar mc_reach( "mc_reach", "4.5", FCVAR_NOTIFY, "Minecraft-mode block/entity reach in blocks" );
 ConVar mc_max_mobs( "mc_max_mobs", "300", FCVAR_ARCHIVE, "Max Minecraft entities mirrored into Source (edict budget)" );
 ConVar mc_spawn_spread( "mc_spawn_spread", "4", FCVAR_NOTIFY, "Random spread (blocks) around the spawn / respawn point" );
 ConVar mc_respawn_near_team( "mc_respawn_near_team", "1", FCVAR_NOTIFY, "Respawn next to a living teammate (or anyone) instead of the world spawn" );
 ConVar mc_move_rate( "mc_move_rate", "20", FCVAR_NONE, "Player position updates per second sent to Minecraft" );
-ConVar mc_physics_budget( "mc_physics_budget", "32", FCVAR_NONE, "Chunk sections turned into VPhysics collision per frame (pipes, stickies)" );
+ConVar mc_physics_ms( "mc_physics_ms", "2", FCVAR_NONE, "Milliseconds per frame spent turning chunk sections into VPhysics collision (pipes, stickies, ammo packs)" );
+ConVar mc_physics_radius( "mc_physics_radius", "3", FCVAR_NONE, "VPhysics collision is built for chunks this close to a player (chunks)" );
 ConVar mc_rebase_distance( "mc_rebase_distance", "96", FCVAR_NOTIFY, "Re-centre the floating origin when a player is this many blocks from it" );
 ConVar mc_border_units( "mc_border_units", "15360", FCVAR_NOTIFY, "Soft border (Source units from the floating origin) when players are too spread out to share one map" );
 ConVar mc_tf_explosions( "mc_tf_explosions", "1", FCVAR_NOTIFY, "TF2 explosions break Minecraft blocks (power multiplier, 0 = off)" );
@@ -375,7 +376,7 @@ void CMCServerSystem::Rebase( double newOx, double newOz )
 	}
 
 	ApplyCoordsToWorldEntity();
-	MCPhysics().Update( MCBridge().World(), c, 0 );   // slide static collision now, before the next physics step
+	MCPhysics().Update( MCBridge().World(), c, std::vector<mc::Vec3d>(), 0, 0.f );   // slide static collision now, before the next physics step
 	DevMsg( "TF2MC: floating origin moved to %.0f %.0f (%d entities shifted by %.0f %.0f)\n", newOx, newOz, roots.Count(), delta.x, delta.y );
 }
 
@@ -556,7 +557,16 @@ void CMCServerSystem::FrameUpdatePostEntityThink()
 	SyncPlayers();
 	UpdateFloatingOrigin();
 	EnforceBorder();
-	MCPhysics().Update( b.World(), b.Coords(), mc_physics_budget.GetInt() );
+	{
+		// VPhysics collision only around players (pipes and stickies don't fly further than that)
+		std::vector<mc::Vec3d> focus;
+		for ( int i = 1; i <= gpGlobals->maxClients; ++i )
+		{
+			CBasePlayer *pl = UTIL_PlayerByIndex( i );
+			if ( pl && pl->IsAlive() ) focus.push_back( b.Coords().ToMC( MC_V( pl->GetAbsOrigin() ) ) );
+		}
+		MCPhysics().Update( b.World(), b.Coords(), focus, mc_physics_radius.GetInt(), mc_physics_ms.GetFloat() );
+	}
 
 	// Release players waiting for terrain
 	for ( int i = 1; i <= gpGlobals->maxClients && i < ARRAYSIZE( m_players ); ++i )
@@ -616,8 +626,38 @@ struct SteveState
 	mc::BlockPos digPos;
 	float nextDigSend;
 	float nextUse;
+	bool build;                              // TF class in build mode (weapon holstered, mouse digs/places)
+	CHandle<CBaseCombatWeapon> lastWeapon;   // re-deployed when build mode ends
 };
 static SteveState s_steve[ MAX_PLAYERS + 1 ];
+
+// Build mode: any TF class can put its weapon away and use the mouse like Minecraft
+// (LMB dig/attack, RMB place/use, 1-9 hotbar). Civilian is always in this mode.
+void MC_SetBuildMode( CTFPlayer *p, bool on )
+{
+	int idx = p ? p->entindex() : 0;
+	if ( idx <= 0 || idx > MAX_PLAYERS ) return;
+	SteveState &st = s_steve[idx];
+	if ( on == st.build ) return;
+	if ( on )
+	{
+		if ( !MC_IsActive() || !p->IsAlive() || p->IsPlayerClass( TF_CLASS_CIVILIAN ) ) return;
+		st.build = true;
+		st.lastWeapon = p->GetActiveWeapon();
+		if ( p->GetActiveWeapon() ) { p->GetActiveWeapon()->Holster(); p->ClearActiveWeapon(); }
+	}
+	else
+	{
+		st.build = false;
+		if ( p->IsAlive() && !p->GetActiveWeapon() )
+		{
+			CBaseCombatWeapon *w = st.lastWeapon.Get();
+			if ( w && w->GetOwner() == p ) p->Weapon_Switch( w );
+			else p->SwitchToNextBestWeapon( NULL );
+		}
+		st.lastWeapon = NULL;
+	}
+}
 
 static void SendAbortDig( int idx, SteveState &st )
 {
@@ -634,7 +674,21 @@ void MC_PlayerPostThink( CTFPlayer *p )
 	if ( idx <= 0 || idx > MAX_PLAYERS ) return;
 	SteveState &st = s_steve[idx];
 
-	if ( !MC_IsActive() || !p->IsAlive() || !p->IsPlayerClass( TF_CLASS_CIVILIAN ) )
+	// Minecraft step height (networked through m_Local, so prediction follows)
+	static ConVarRef sv_stepsize( "sv_stepsize" );
+	float step = MC_StepSize( sv_stepsize.IsValid() ? sv_stepsize.GetFloat() : 18.f );
+	if ( p->m_Local.m_flStepSize != step ) p->m_Local.m_flStepSize = step;
+
+	if ( st.build && ( !MC_IsActive() || !p->IsAlive() || p->IsPlayerClass( TF_CLASS_CIVILIAN ) ) )
+		MC_SetBuildMode( p, false );
+	if ( st.build && p->GetActiveWeapon() )
+	{
+		// something (resupply, a pickup, a taunt) re-deployed a weapon: holster it again
+		st.lastWeapon = p->GetActiveWeapon();
+		p->GetActiveWeapon()->Holster();
+		p->ClearActiveWeapon();
+	}
+	if ( !MC_IsActive() || !p->IsAlive() || !( p->IsPlayerClass( TF_CLASS_CIVILIAN ) || st.build ) )
 	{
 		SendAbortDig( idx, st );
 		return;
@@ -759,6 +813,13 @@ CON_COMMAND( mc_rebase, "Force the floating origin to Minecraft x z: mc_rebase <
 
 // --- Issued by clients (client.dll binds / inventory screen) ---
 static CTFPlayer *CommandPlayer() { return ToTFPlayer( UTIL_GetCommandClient() ); }
+
+CON_COMMAND( mc_build, "mc_build <0|1>: TF classes put their weapon away and dig/place like Minecraft" )
+{
+	CTFPlayer *p = CommandPlayer();
+	if ( !p || args.ArgC() < 2 ) return;
+	MC_SetBuildMode( p, atoi( args[1] ) != 0 );
+}
 
 CON_COMMAND( mc_select, "mc_select <0-8>: select Minecraft hotbar slot" )
 {

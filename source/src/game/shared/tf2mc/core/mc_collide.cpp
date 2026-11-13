@@ -203,8 +203,8 @@ namespace mc
 			{
 				// Outline boxes (stairs, slabs, fences, plants...) or the unit cube
 				std::vector<Box> unit( 1, Box::Unit() );
-				const std::vector<Box> &boxes = ( def.shape == SHAPE_BOXES || def.shape == SHAPE_CROSS ) && !def.boxes.empty() ? def.boxes : unit;
-				bool exact = def.shape == SHAPE_BOXES || ( def.shape == SHAPE_CROSS && !def.boxes.empty() );
+				const std::vector<Box> &boxes = ( def.shape == SHAPE_BOXES || def.shape == SHAPE_CROSS || def.shape == SHAPE_MODEL ) && !def.boxes.empty() ? def.boxes : unit;
+				bool exact = def.shape == SHAPE_BOXES || ( ( def.shape == SHAPE_CROSS || def.shape == SHAPE_MODEL ) && !def.boxes.empty() );
 				double bestT = 1e30; Face bestFace = face;
 				Vec3d dl( d.x * maxDist, d.y * maxDist, d.z * maxDist );
 				for ( size_t bi = 0; bi < boxes.size(); ++bi )

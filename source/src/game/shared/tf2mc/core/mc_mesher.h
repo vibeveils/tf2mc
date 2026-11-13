@@ -31,7 +31,10 @@ namespace mc
 		bool clockwise = true;        // Source/D3D front faces are clockwise
 		bool ambientOcclusion = true;
 		bool textured = true;         // false -> flat per-block colours (no atlas available)
-		float texelInset = 0.5f / 16.f;
+		// Fraction of a tile kept away from tile edges. The atlas is point sampled without mips, so
+		// this only guards against float rounding picking the neighbouring tile; 0.5 texel (the old
+		// value) squeezed every 16px texture into 15px and shifted it by half a pixel.
+		float texelInset = 0.002f;
 	};
 
 	void BuildSectionMesh( const VoxelWorld &w, const Coords &c, int cx, int sy, int cz, const MesherOptions &opt, SectionMesh &out );

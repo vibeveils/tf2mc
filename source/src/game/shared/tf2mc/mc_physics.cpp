@@ -47,7 +47,7 @@ void CMCPhysics::Destroy( const mc::SectionKey &k )
 	m_objects.erase( it );
 }
 
-void CMCPhysics::Update( mc::VoxelWorld &w, const mc::Coords &c, int budget )
+void CMCPhysics::Update( mc::VoxelWorld &w, const mc::Coords &c, const std::vector<mc::Vec3d> &focus, int radiusChunks, float msBudget )
 {
 	if ( !physenv || !physcollision ) return;
 
@@ -55,7 +55,9 @@ void CMCPhysics::Update( mc::VoxelWorld &w, const mc::Coords &c, int budget )
 	{
 		if ( !c.SameScale( m_coords ) )
 		{
-			for ( auto &it : m_objects ) m_pending.push_back( it.first );   // scale change: rebuild
+			// scale change: everything is stale
+			for ( auto &it : m_objects ) { m_pending.insert( it.first ); Free( it.second ); }
+			m_objects.clear();
 		}
 		else
 		{
@@ -70,16 +72,57 @@ void CMCPhysics::Update( mc::VoxelWorld &w, const mc::Coords &c, int budget )
 		m_coords = c;
 	}
 
-	std::vector<mc::SectionKey> removed;
-	w.TakeRemoved( removed, mc::CH_PHYSICS );
-	for ( size_t i = 0; i < removed.size(); ++i ) Destroy( removed[i] );
-	w.TakeDirty( m_pending, mc::CH_PHYSICS );
-	int n = 0;
-	while ( !m_pending.empty() && n++ < budget )
+	std::vector<mc::SectionKey> keys;
+	w.TakeRemoved( keys, mc::CH_PHYSICS );
+	for ( size_t i = 0; i < keys.size(); ++i ) { Destroy( keys[i] ); m_pending.erase( keys[i] ); }
+	keys.clear();
+	w.TakeDirty( keys, mc::CH_PHYSICS );
+	for ( size_t i = 0; i < keys.size(); ++i ) m_pending.insert( keys[i] );
+	if ( focus.empty() ) return;
+
+	struct F { int cx, sy, cz; };
+	std::vector<F> f( focus.size() );
+	for ( size_t i = 0; i < focus.size(); ++i )
+		f[i] = { mc::FloorDiv16( mc::FloorI( focus[i].x ) ), mc::FloorDiv16( mc::FloorI( focus[i].y ) ), mc::FloorDiv16( mc::FloorI( focus[i].z ) ) };
+	// Distance (in sections) to the nearest focus; -1 = out of range
+	auto rank = [&]( const mc::SectionKey &k, int radius ) -> int {
+		int best = -1;
+		for ( const F &p : f )
+		{
+			int dx = abs( k.cx - p.cx ), dz = abs( k.cz - p.cz ), dy = abs( k.sy - p.sy );
+			if ( dx > radius || dz > radius || dy > 2 ) continue;
+			int d = dx * dx + dz * dz + dy * dy;
+			if ( best < 0 || d < best ) best = d;
+		}
+		return best;
+	};
+
+	// Free sections well outside every focus (hysteresis: radius + 2), at most twice a second
+	float now = (float)Plat_FloatTime();
+	if ( now >= m_flNextEvict )
 	{
-		mc::SectionKey k = m_pending.back();
-		m_pending.pop_back();
-		Build( w, k );
+		m_flNextEvict = now + 0.5f;
+		std::vector<mc::SectionKey> far;
+		for ( auto &it : m_objects )
+			if ( rank( it.first, radiusChunks + 2 ) < 0 ) far.push_back( it.first );
+		for ( size_t i = 0; i < far.size(); ++i ) { Destroy( far[i] ); m_pending.insert( far[i] ); }
+	}
+
+	// Build the nearest pending sections until the time budget runs out
+	std::vector<std::pair<int, mc::SectionKey>> todo;
+	for ( const mc::SectionKey &k : m_pending )
+	{
+		int r = rank( k, radiusChunks );
+		if ( r >= 0 ) todo.push_back( std::make_pair( r, k ) );
+	}
+	if ( todo.empty() ) return;
+	std::sort( todo.begin(), todo.end(), []( const std::pair<int, mc::SectionKey> &a, const std::pair<int, mc::SectionKey> &b ) { return a.first < b.first; } );
+	double start = Plat_FloatTime();
+	for ( size_t i = 0; i < todo.size(); ++i )
+	{
+		Build( w, todo[i].second );
+		m_pending.erase( todo[i].second );
+		if ( ( Plat_FloatTime() - start ) * 1000.0 >= msBudget ) break;
 	}
 }
 

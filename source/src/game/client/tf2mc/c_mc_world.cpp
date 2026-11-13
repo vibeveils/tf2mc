@@ -37,13 +37,16 @@
 #include "tier0/memdbgon.h"
 
 static ConVar mc_draw( "mc_draw", "1", FCVAR_NONE, "Draw the Minecraft world" );
-static ConVar mc_mesh_budget( "mc_mesh_budget", "24", FCVAR_ARCHIVE, "Chunk sections meshed per frame" );
+static ConVar mc_mesh_budget( "mc_mesh_budget", "32", FCVAR_NONE, "Max chunk sections handed to the background mesher per frame" );
+static ConVar mc_mesh_submit_ms( "mc_mesh_submit_ms", "1.5", FCVAR_NONE, "Milliseconds per frame spent copying sections for the background mesher" );
+static ConVar mc_mesh_upload_ms( "mc_mesh_upload_ms", "2", FCVAR_NONE, "Milliseconds per frame spent uploading finished chunk meshes to the GPU" );
 static ConVar mc_ao( "mc_ao", "1", FCVAR_ARCHIVE, "Ambient occlusion on Minecraft blocks" );
 static ConVar mc_flip_winding( "mc_flip_winding", "0", FCVAR_ARCHIVE, "Flip triangle winding if the world renders inside-out" );
 static ConVar mc_daynight( "mc_daynight", "1", FCVAR_ARCHIVE, "Darken the world at Minecraft night" );
 static ConVar mc_highlight( "mc_highlight", "1", FCVAR_ARCHIVE, "Outline the targeted block in Minecraft mode" );
 static ConVar mc_glow( "mc_glow", "1", FCVAR_ARCHIVE, "Block light (torches, lava, glowstone) pass" );
-static ConVar cl_mc_physics_budget( "cl_mc_physics_budget", "16", FCVAR_NONE, "Sections turned into client physics (gibs, ragdolls) per frame" );
+static ConVar cl_mc_physics_ms( "cl_mc_physics_ms", "1", FCVAR_NONE, "Milliseconds per frame spent building client physics (gibs, ragdolls) for nearby chunks" );
+static ConVar cl_mc_physics_radius( "cl_mc_physics_radius", "2", FCVAR_NONE, "Client physics (gibs, ragdolls) is built for chunks this close to you" );
 static ConVar cl_mc_reach( "cl_mc_reach", "4.5", FCVAR_NONE, "Client-side highlight reach (should match server mc_reach)" );
 
 static const int kMaxQuadsPerMesh = 8000;
@@ -62,6 +65,103 @@ struct GpuSection
 
 enum MeshPass { PASS_OPAQUE = 0, PASS_GLOW, PASS_TRANSLUCENT };
 
+// Background mesher: the main thread copies the 3x3x3 sections around a dirty section (all the
+// mesher reads) plus an immutable registry snapshot; a worker thread builds the quads; finished
+// meshes are uploaded on the main thread under a time budget. Results that a newer block change
+// has made stale are dropped (sequence numbers).
+struct MeshJob
+{
+	mc::SectionKey key;
+	uint32_t seq;
+	mc::Coords coords;
+	mc::MesherOptions opt;
+	std::shared_ptr<const mc::BlockRegistry> reg;
+	std::unique_ptr<mc::VoxelWorld> world;
+};
+
+struct MeshResult
+{
+	mc::SectionKey key;
+	uint32_t seq;
+	mc::Coords coords;
+	mc::SectionMesh mesh;
+};
+
+class CMCMeshWorker
+{
+public:
+	~CMCMeshWorker() { Stop(); }
+	void Submit( std::unique_ptr<MeshJob> job )
+	{
+		Start();
+		{
+			std::lock_guard<std::mutex> lock( m_mutex );
+			m_jobs.push_back( std::move( job ) );
+			++m_inFlight;
+		}
+		m_cv.notify_one();
+	}
+	void Collect( std::deque<MeshResult> &out )
+	{
+		std::lock_guard<std::mutex> lock( m_mutex );
+		for ( size_t i = 0; i < m_results.size(); ++i ) out.push_back( std::move( m_results[i] ) );
+		m_inFlight -= (int)m_results.size();
+		m_results.clear();
+	}
+	int InFlight() { std::lock_guard<std::mutex> lock( m_mutex ); return m_inFlight; }
+	void Stop()
+	{
+		if ( !m_thread.joinable() ) return;
+		{
+			std::lock_guard<std::mutex> lock( m_mutex );
+			m_stop = true;
+			m_jobs.clear();
+		}
+		m_cv.notify_all();
+		m_thread.join();
+		m_results.clear();
+		m_inFlight = 0;
+		m_stop = false;
+	}
+
+private:
+	void Start()
+	{
+		if ( !m_thread.joinable() ) m_thread = std::thread( &CMCMeshWorker::Main, this );
+	}
+	void Main()
+	{
+		for ( ;; )
+		{
+			std::unique_ptr<MeshJob> job;
+			{
+				std::unique_lock<std::mutex> lock( m_mutex );
+				m_cv.wait( lock, [this] { return m_stop || !m_jobs.empty(); } );
+				if ( m_stop ) return;
+				job = std::move( m_jobs.front() );
+				m_jobs.pop_front();
+			}
+			MeshResult r;
+			r.key = job->key;
+			r.seq = job->seq;
+			r.coords = job->coords;
+			mc::BuildSectionMesh( *job->world, job->coords, job->key.cx, job->key.sy, job->key.cz, job->opt, r.mesh );
+			job.reset();
+			std::lock_guard<std::mutex> lock( m_mutex );
+			if ( m_stop ) return;
+			m_results.push_back( std::move( r ) );
+		}
+	}
+
+	std::thread m_thread;
+	std::mutex m_mutex;
+	std::condition_variable m_cv;
+	std::deque<std::unique_ptr<MeshJob>> m_jobs;
+	std::vector<MeshResult> m_results;
+	int m_inFlight = 0;
+	bool m_stop = false;
+};
+
 class CMCWorldMeshes
 {
 public:
@@ -69,17 +169,26 @@ public:
 	void Update();
 	void Draw( MeshPass pass );
 	void DrawOverlays();
+	void Shutdown() { m_worker.Stop(); }
 	IMaterial *DebugMaterial() { return Mat( PASS_OPAQUE ); }
 	int SectionCount() const { return (int)m_gpu.size(); }
+	int PendingCount() const { return (int)m_pending.size() + (int)m_ready.size(); }
 
 private:
-	void Build( const mc::SectionKey &k );
+	void Submit( const mc::SectionKey &k );
+	void Apply( MeshResult &r );
 	void Destroy( GpuSection &g );
 	void Upload( std::vector<IMesh *> &out, const std::vector<mc::MeshVertex> &verts, IMaterial *mat, int lightChannel );
 	IMaterial *Mat( MeshPass pass );
 
 	std::unordered_map<mc::SectionKey, GpuSection, mc::SectionKeyHash> m_gpu;
 	std::vector<mc::SectionKey> m_pending;
+	std::unordered_map<mc::SectionKey, uint32_t, mc::SectionKeyHash> m_latest;   // newest job per section
+	std::deque<MeshResult> m_ready;                                                // built, waiting for upload
+	uint32_t m_seq = 0;
+	CMCMeshWorker m_worker;
+	std::shared_ptr<const mc::BlockRegistry> m_regSnap;
+	uint32_t m_regGen = 0;
 	mc::Coords m_builtCoords;
 	bool m_builtTextured = false;
 	bool m_builtFlip = false;
@@ -125,6 +234,10 @@ void CMCWorldMeshes::Clear()
 	for ( auto &it : m_gpu ) Destroy( it.second );
 	m_gpu.clear();
 	m_pending.clear();
+	m_latest.clear();   // in-flight results no longer match anything: dropped on arrival
+	m_ready.clear();
+	m_regSnap.reset();
+	m_regGen = 0;
 }
 
 // lightChannel: 0 = sky light (scaled by daylight via $color), 1 = block light (additive glow pass)
@@ -168,22 +281,42 @@ void CMCWorldMeshes::Upload( std::vector<IMesh *> &out, const std::vector<mc::Me
 	}
 }
 
-void CMCWorldMeshes::Build( const mc::SectionKey &k )
+void CMCWorldMeshes::Submit( const mc::SectionKey &k )
 {
-	auto it = m_gpu.find( k );
-	if ( it != m_gpu.end() ) { Destroy( it->second ); m_gpu.erase( it ); }
-
 	CMCBridge &b = MCBridge();
-	mc::MesherOptions opt;
-	opt.clockwise = !mc_flip_winding.GetBool();
-	opt.ambientOcclusion = mc_ao.GetBool();
-	opt.textured = m_textured;
-	mc::SectionMesh mesh;
-	mc::BuildSectionMesh( b.World(), b.Coords(), k.cx, k.sy, k.cz, opt, mesh );
+	const mc::BlockRegistry &reg = b.World().Registry();
+	if ( !m_regSnap || m_regGen != reg.Generation() )
+	{
+		m_regSnap = std::make_shared<const mc::BlockRegistry>( reg );   // copy; jobs keep it alive
+		m_regGen = reg.Generation();
+	}
+	std::unique_ptr<MeshJob> job( new MeshJob );
+	job->key = k;
+	job->seq = ++m_seq;
+	job->coords = b.Coords();
+	job->opt.clockwise = !mc_flip_winding.GetBool();
+	job->opt.ambientOcclusion = mc_ao.GetBool();
+	job->opt.textured = m_textured;
+	job->reg = m_regSnap;
+	job->world.reset( new mc::VoxelWorld );
+	job->world->CopyNeighborhood( b.World(), k.cx, k.sy, k.cz, m_regSnap.get() );
+	m_latest[k] = job->seq;
+	m_worker.Submit( std::move( job ) );
+}
+
+void CMCWorldMeshes::Apply( MeshResult &r )
+{
+	auto lit = m_latest.find( r.key );
+	if ( lit == m_latest.end() || lit->second != r.seq ) return;   // superseded or unloaded
+	m_latest.erase( lit );
+
+	auto it = m_gpu.find( r.key );
+	if ( it != m_gpu.end() ) { Destroy( it->second ); m_gpu.erase( it ); }
+	const mc::SectionMesh &mesh = r.mesh;
 	if ( mesh.QuadCount() == 0 ) return;
 
 	GpuSection g;
-	g.built = b.Coords();
+	g.built = r.coords;
 	Upload( g.opaque, mesh.opaque, Mat( PASS_OPAQUE ), 0 );
 	Upload( g.translucent, mesh.translucent, Mat( PASS_TRANSLUCENT ), 0 );
 	// Glow pass: only quads that receive block light
@@ -192,8 +325,9 @@ void CMCWorldMeshes::Build( const mc::SectionKey &k )
 		if ( mesh.opaque[q].blk | mesh.opaque[q + 1].blk | mesh.opaque[q + 2].blk | mesh.opaque[q + 3].blk )
 			glow.insert( glow.end(), mesh.opaque.begin() + q, mesh.opaque.begin() + q + 4 );
 	if ( !glow.empty() ) Upload( g.glow, glow, Mat( PASS_GLOW ), 1 );
-	mc::Vec3d a = b.Coords().ToSource( mc::Vec3d( k.cx * 16, k.sy * 16, k.cz * 16 ) );
-	mc::Vec3d c = b.Coords().ToSource( mc::Vec3d( k.cx * 16 + 16, k.sy * 16 + 16, k.cz * 16 + 16 ) );
+	const mc::SectionKey &k = r.key;
+	mc::Vec3d a = r.coords.ToSource( mc::Vec3d( k.cx * 16, k.sy * 16, k.cz * 16 ) );
+	mc::Vec3d c = r.coords.ToSource( mc::Vec3d( k.cx * 16 + 16, k.sy * 16 + 16, k.cz * 16 + 16 ) );
 	g.mins = Vector( (float)MIN( a.x, c.x ), (float)MIN( a.y, c.y ), (float)MIN( a.z, c.z ) );
 	g.maxs = Vector( (float)MAX( a.x, c.x ), (float)MAX( a.y, c.y ), (float)MAX( a.z, c.z ) );
 	m_gpu.insert( std::make_pair( k, g ) );
@@ -204,7 +338,7 @@ void CMCWorldMeshes::Update()
 	CMCBridge &b = MCBridge();
 	if ( !b.IsReady() )
 	{
-		if ( !m_gpu.empty() ) Clear();
+		if ( !m_gpu.empty() || !m_pending.empty() || !m_latest.empty() || !m_ready.empty() ) Clear();
 		return;
 	}
 
@@ -228,12 +362,30 @@ void CMCWorldMeshes::Update()
 	{
 		auto it = m_gpu.find( removed[i] );
 		if ( it != m_gpu.end() ) { Destroy( it->second ); m_gpu.erase( it ); }
+		m_latest.erase( removed[i] );   // drop its in-flight job result
 	}
 	b.World().TakeDirty( m_pending, mc::CH_RENDER );
-	MCPhysics().Update( b.World(), c, cl_mc_physics_budget.GetInt() );   // gibs & ragdolls collide with voxels
+	{
+		// gibs & ragdolls collide with voxels near the camera
+		std::vector<mc::Vec3d> focus( 1, c.ToMC( MC_V( MainViewOrigin() ) ) );
+		MCPhysics().Update( b.World(), c, focus, cl_mc_physics_radius.GetInt(), cl_mc_physics_ms.GetFloat() );
+	}
+
+	// 1. Upload finished meshes (time budget; at least one per frame)
+	m_worker.Collect( m_ready );
+	{
+		double start = Plat_FloatTime();
+		while ( !m_ready.empty() )
+		{
+			MeshResult r = std::move( m_ready.front() );
+			m_ready.pop_front();
+			Apply( r );
+			if ( ( Plat_FloatTime() - start ) * 1000.0 >= mc_mesh_upload_ms.GetFloat() ) break;
+		}
+	}
 	if ( m_pending.empty() ) return;
 
-	// Nearest sections first
+	// 2. Hand the nearest dirty sections to the worker
 	Vector eye = MainViewOrigin();
 	mc::Vec3d e = c.ToMC( MC_V( eye ) );
 	int ecx = mc::FloorDiv16( mc::FloorI( e.x ) ), ecy = mc::FloorDiv16( mc::FloorI( e.y ) ), ecz = mc::FloorDiv16( mc::FloorI( e.z ) );
@@ -248,12 +400,25 @@ void CMCWorldMeshes::Update()
 	} );
 	m_pending.erase( std::unique( m_pending.begin(), m_pending.end() ), m_pending.end() );
 
-	int budget = MAX( 1, mc_mesh_budget.GetInt() );
+	const int maxInFlight = MAX( 4, mc_mesh_budget.GetInt() * 4 );
+	const double start = Plat_FloatTime();
 	int done = 0;
-	for ( ; done < (int)m_pending.size() && done < budget; ++done )
+	for ( ; done < (int)m_pending.size(); ++done )
 	{
+		if ( m_worker.InFlight() >= maxInFlight ) break;
+		if ( done >= mc_mesh_budget.GetInt() || ( Plat_FloatTime() - start ) * 1000.0 >= mc_mesh_submit_ms.GetFloat() ) break;
 		const mc::SectionKey &k = m_pending[done];
-		if ( b.World().IsColumnLoaded( k.cx, k.cz ) ) Build( k );
+		if ( !b.World().IsColumnLoaded( k.cx, k.cz ) ) continue;
+		const mc::Section *sec = b.World().GetSection( k.cx, k.sy, k.cz );
+		if ( !sec || sec->nonAir == 0 )
+		{
+			// nothing to draw: no need for the worker
+			auto it = m_gpu.find( k );
+			if ( it != m_gpu.end() ) { Destroy( it->second ); m_gpu.erase( it ); }
+			m_latest.erase( k );
+			continue;
+		}
+		Submit( k );
 	}
 	m_pending.erase( m_pending.begin(), m_pending.begin() + done );
 }
@@ -538,6 +703,11 @@ public:
 		m_iSubscribed = -1;
 	}
 
+	virtual void Shutdown()
+	{
+		g_Meshes.Shutdown();   // join the mesher thread before client.dll unloads
+	}
+
 private:
 	int m_iSubscribed;
 };
@@ -546,7 +716,7 @@ static CMCClientSystem g_MCClientSystem;
 CON_COMMAND( cl_mc_status, "Show Minecraft bridge status (client)" )
 {
 	MCBridge().PrintStatus();
-	Msg( "TF2MC[client]: %d meshed sections, %d physics sections\n", g_Meshes.SectionCount(), MCPhysics().Count() );
+	Msg( "TF2MC[client]: %d meshed sections (%d waiting), %d physics sections\n", g_Meshes.SectionCount(), g_Meshes.PendingCount(), MCPhysics().Count() );
 	bool fresh = gpGlobals->framecount - s_nDrawFrame <= 2;
 	Msg( "TF2MC[client]: last drawn frame %d (now %d): opaque calls %d drawn %d culled %d | translucent calls %d drawn %d\n",
 		 s_nDrawFrame, gpGlobals->framecount, fresh ? s_nDrawCalls[PASS_OPAQUE] : 0, fresh ? s_nDrawnSections[PASS_OPAQUE] : 0,

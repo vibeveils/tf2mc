@@ -92,11 +92,21 @@ public:
 	// Converts a Source ray/box trace into a voxel sweep and fills a Source trace.
 	bool TraceRay( const Ray_t &ray, unsigned int mask, trace_t &tr, CBaseEntity *pOwner );
 
+	// Minecraft sounds (scripts/mc_sounds.txt from tools/mc_assets.py). Client: plays at a MC-space
+	// position; returns false when the event has no converted files.
+	bool PlaySound( const char *event, const mc::Vec3d &mcPos, float volume, float pitch );
+	bool HasSound( const char *event ) const { return m_sounds.find( event ) != m_sounds.end(); }
+
 private:
 	void LoadBlockDefinitions();
+	void LoadSounds( const std::string &text );
+	struct SoundFile { std::string path; float volume, pitch; int weight; };
+	std::unordered_map<std::string, std::vector<SoundFile>> m_sounds;
+	std::unordered_set<std::string> m_precached;
 	void OnBlockChanged( const mc::BlockPos &pos, uint16 oldId, uint16 newId );
 
 	mc::Connection m_conn;
+	std::deque<mc::Packet> m_backlog;   // received, not decoded yet (time budget)
 	mc::VoxelWorld m_world;
 	mc::Coords m_coords;
 	bool m_bHelloAck;
@@ -120,6 +130,10 @@ private:
 };
 
 CMCBridge &MCBridge();
+float MC_StepSize( float tfStepSize );
+// Defined in baseplayer_shared.cpp (TF2MC hook), set by mc_bridge.cpp
+typedef bool ( *MC_PlayStepSoundFn )( CBasePlayer *pPlayer, const Vector &vecOrigin, float fvol );
+extern MC_PlayStepSoundFn g_pfnMCPlayStepSound;   // 0.6 blocks while the Minecraft world is live
 // Prints where the player is in both worlds and what a downward trace hits (engine vs voxels).
 void MC_DebugProbe( CBaseEntity *pPlayer, const char *tag );
 

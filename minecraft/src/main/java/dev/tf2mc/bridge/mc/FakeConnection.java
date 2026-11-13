@@ -10,7 +10,8 @@ import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.PacketFlow;
 import org.jspecify.annotations.Nullable;
 
-/** A network connection that goes nowhere: bridged players are driven by the TF2 side. */
+/** A network connection that goes nowhere: bridged players are driven by the TF2 side.
+ *  Sounds the player would hear are handed to {@link SoundForwarder} so TF2 plays them. */
 public final class FakeConnection extends Connection {
     public FakeConnection() {
         super(PacketFlow.SERVERBOUND);
@@ -18,7 +19,7 @@ public final class FakeConnection extends Connection {
     }
 
     @Override public void setReadOnly() {}
-    @Override public void send(Packet<?> packet, @Nullable ChannelFutureListener listener, boolean flush) {}
+    @Override public void send(Packet<?> packet, @Nullable ChannelFutureListener listener, boolean flush) { SoundForwarder.onPacket(packet); }
     @Override public void handleDisconnection() {}
     @Override public void setListenerForServerboundHandshake(PacketListener listener) {}
     @Override public <T extends PacketListener> void setupInboundProtocol(ProtocolInfo<T> info, T listener) {}

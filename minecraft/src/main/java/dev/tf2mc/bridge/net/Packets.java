@@ -4,7 +4,7 @@ package dev.tf2mc.bridge.net;
 public final class Packets {
     private Packets() {}
 
-    public static final int PROTOCOL_VERSION = 2;
+    public static final int PROTOCOL_VERSION = 3;   // v3: block sound types in STATE_DEFS, S2C_SOUND
 
     // Minecraft -> Source
     public static final int S2C_HELLO_ACK = 0x01;
@@ -24,6 +24,7 @@ public final class Packets {
     public static final int S2C_PLAYER_STATUS = 0x0F;
     public static final int S2C_CONTAINER = 0x10;
     public static final int S2C_CONTAINER_CLOSE = 0x11;
+    public static final int S2C_SOUND = 0x12;
 
     // Source -> Minecraft
     public static final int C2S_HELLO = 0x40;
@@ -64,7 +65,12 @@ public final class Packets {
     }
 
     /** One block state definition: real collision + outline shapes (block-local AABBs). */
-    public record StateDef(int id, String name, String props, int flags, int light, float[][] coll, float[][] shape) {}
+    /** sounds: break, step, place, hit, fall sound event ids ("minecraft:block.stone.break"), may be empty. */
+    public record StateDef(int id, String name, String props, int flags, int light, float[][] coll, float[][] shape, String[] sounds) {
+        public StateDef(int id, String name, String props, int flags, int light, float[][] coll, float[][] shape) {
+            this(id, name, props, flags, light, coll, shape, new String[0]);
+        }
+    }
 
     public static byte[] stateDefs(java.util.List<StateDef> defs) {
         Buf b = Buf.frame(S2C_STATE_DEFS).u16(defs.size());
@@ -75,8 +81,14 @@ public final class Packets {
                 b.u8(n);
                 for (int i = 0; i < n; i++) for (int k = 0; k < 6; k++) b.f32(boxes[i][k]);
             }
+            for (int i = 0; i < 5; i++) b.str(i < d.sounds().length && d.sounds()[i] != null ? d.sounds()[i] : "");
         }
         return b.finish();
+    }
+
+    /** A Minecraft sound to play at a position (MC space). entityId = -1 when not attached. */
+    public static byte[] sound(String event, double x, double y, double z, float volume, float pitch, int category, int entityId) {
+        return Buf.frame(S2C_SOUND).str(event).f64(x).f64(y).f64(z).f32(volume).f32(pitch).u8(category).i32(entityId).finish();
     }
 
     private static void light(Buf b, byte[] sky, byte[] blk) {

@@ -8,7 +8,9 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.sounds.SoundEvent;
 import net.minecraft.world.level.block.LiquidBlock;
+import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.phys.AABB;
@@ -67,7 +69,20 @@ public final class StateDefs {
             if (fluid.is(FluidTags.LAVA)) flags |= Packets.STATE_LAVA;
         }
         if (state.is(BlockTags.CLIMBABLE)) flags |= Packets.STATE_CLIMBABLE;
-        return new Packets.StateDef(id(state), name, props, flags, state.getLightEmission(), coll, shape);
+        return new Packets.StateDef(id(state), name, props, flags, state.getLightEmission(), coll, shape, sounds(state));
+    }
+
+    /** break, step, place, hit, fall sound event ids of the block's sound type. */
+    private static String[] sounds(BlockState state) {
+        String[] out = {"", "", "", "", ""};
+        try {
+            SoundType t = state.getSoundType();
+            SoundEvent[] ev = {t.getBreakSound(), t.getStepSound(), t.getPlaceSound(), t.getHitSound(), t.getFallSound()};
+            for (int i = 0; i < ev.length; i++) out[i] = SoundForwarder.soundId(ev[i]);
+        } catch (RuntimeException ignored) {
+            // exotic blocks: TF2 falls back to its own surface sounds
+        }
+        return out;
     }
 
     private static float[][] boxes(VoxelShape shape) {

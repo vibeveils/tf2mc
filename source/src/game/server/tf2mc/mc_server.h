@@ -10,6 +10,7 @@ class Vector;
 // Called from CTFPlayer::PostThink (patch). Minecraft-mode (Civilian) interaction:
 // digging, placing/using, interacting, melee on mobs.
 void MC_PlayerPostThink( CTFPlayer *pPlayer );
+void MC_SetBuildMode( CTFPlayer *pPlayer, bool on );   // TF classes: weapon away, dig/place like Minecraft
 
 // Called from CObjectSentrygun::FindTarget (patch) when no player/bot target was found.
 CBaseEntity *MC_SentryFindMob( CBaseEntity *pSentry, const Vector &eye, float range );
