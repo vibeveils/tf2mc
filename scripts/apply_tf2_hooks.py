@@ -78,9 +78,19 @@ def main(sdk):
     us_h = os.path.join(src, "game/shared/util_shared.h")
     us_c = os.path.join(src, "game/shared/util_shared.cpp")
     r.append(edit(us_h, "extern ConVar r_visualizetraces;\n",
-                  "\n// TF2MC: merge the Minecraft voxel world into a finished trace (tf2mc/mc_bridge.cpp)\n"
-                  "void MC_ClipTrace( const Ray_t &ray, unsigned int mask, ITraceFilter *pFilter, trace_t *ptr );\t// TF2MC\n"
+                  "\n// TF2MC: merge the Minecraft voxel world into a finished trace. Function pointers (set by tf2mc/mc_bridge.cpp)\n"
+                  "// so projects without TF2MC (hl2mp etc.) still link: there they stay NULL and the hooks do nothing.\n"
+                  "typedef void ( *MC_ClipTraceFn )( const Ray_t &ray, unsigned int mask, ITraceFilter *pFilter, trace_t *ptr );\t// TF2MC\n"
+                  "extern MC_ClipTraceFn g_pfnMCClipTrace;\t// TF2MC\n"
+                  "inline void MC_ClipTrace( const Ray_t &ray, unsigned int mask, ITraceFilter *pFilter, trace_t *ptr ) { if ( g_pfnMCClipTrace ) g_pfnMCClipTrace( ray, mask, pFilter, ptr ); }\t// TF2MC\n"
                   "void MC_ClipEntityTrace( ICollideable *pCollision, const Vector &vecAbsStart, const Vector &vecAbsEnd, unsigned int mask, ITraceFilter *pFilter, trace_t *ptr );\t// TF2MC\n"))
+    r.append(edit(us_c, "void UTIL_TraceEntity( CBaseEntity *pEntity, const Vector &vecAbsStart, const Vector &vecAbsEnd, unsigned int mask, trace_t *ptr )\n",
+                  "// TF2MC: set by tf2mc/mc_bridge.cpp when the Minecraft bridge is compiled in\n"
+                  "MC_ClipTraceFn g_pfnMCClipTrace = NULL;\t// TF2MC\n"
+                  "void MC_ClipEntityTrace( ICollideable *pCollision, const Vector &vecAbsStart, const Vector &vecAbsEnd, unsigned int mask, ITraceFilter *pFilter, trace_t *ptr )\t// TF2MC\n"
+                  "{\n\tif ( !g_pfnMCClipTrace || !pCollision ) return;\n"
+                  "\tRay_t ray;\n\tray.Init( vecAbsStart, vecAbsEnd, pCollision->OBBMins(), pCollision->OBBMaxs() );\n"
+                  "\tg_pfnMCClipTrace( ray, mask, pFilter, ptr );\n}\n\n", after=False))
     r.append(edit_all(us_h, "\tenginetrace->TraceRay( ray, mask, &traceFilter, ptr );\n",
                       "\tenginetrace->TraceRay( ray, mask, &traceFilter, ptr );\n\tMC_ClipTrace( ray, mask, &traceFilter, ptr );\t// TF2MC\n"))
     r.append(edit_all(us_h, "\tenginetrace->TraceRay( ray, mask, pFilter, ptr );\n",

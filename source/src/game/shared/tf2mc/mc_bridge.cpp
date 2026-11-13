@@ -501,7 +501,7 @@ void MC_DebugProbe( CBaseEntity *pPlayer, const char *tag )
 //-----------------------------------------------------------------------------
 // Trace merge (hooked into UTIL_TraceLine/Hull/Ray/Entity and TF player movement)
 //-----------------------------------------------------------------------------
-void MC_ClipTrace( const Ray_t &ray, unsigned int mask, ITraceFilter *pFilter, trace_t *ptr )
+static void MC_ClipTraceImpl( const Ray_t &ray, unsigned int mask, ITraceFilter *pFilter, trace_t *ptr )
 {
 	if ( !ptr || !( mask & CONTENTS_SOLID ) ) return;
 	CMCBridge &b = MCBridge();
@@ -520,10 +520,8 @@ void MC_ClipTrace( const Ray_t &ray, unsigned int mask, ITraceFilter *pFilter, t
 		*ptr = t;
 }
 
-void MC_ClipEntityTrace( ICollideable *pCollision, const Vector &vecAbsStart, const Vector &vecAbsEnd, unsigned int mask, ITraceFilter *pFilter, trace_t *ptr )
+// Registered at load: util_shared.h's MC_ClipTrace / MC_ClipEntityTrace hooks call through this pointer.
+static struct MCClipTraceRegistrar
 {
-	if ( !pCollision || !MCBridge().IsReady() ) return;
-	Ray_t ray;
-	ray.Init( vecAbsStart, vecAbsEnd, pCollision->OBBMins(), pCollision->OBBMaxs() );
-	MC_ClipTrace( ray, mask, pFilter, ptr );
-}
+	MCClipTraceRegistrar() { g_pfnMCClipTrace = MC_ClipTraceImpl; }
+} s_MCClipTraceRegistrar;

@@ -81,9 +81,17 @@ def resolve_model(jar, name, depth=0):
     return textures, elements, chain
 
 
+def tex_ref(v):
+    """A texture reference: a string, or (newer Minecraft) an object like {"sprite": "...", ...}."""
+    if isinstance(v, dict):
+        v = v.get("sprite") or v.get("texture") or v.get("name")
+    return v if isinstance(v, str) else None
+
+
 def lookup(textures, ref, depth=0):
+    ref = tex_ref(ref)
     while ref and ref.startswith("#") and depth < 16:
-        ref = textures.get(ref[1:])
+        ref = tex_ref(textures.get(ref[1:]))
         depth += 1
     return strip_ns(ref) if ref else None
 
